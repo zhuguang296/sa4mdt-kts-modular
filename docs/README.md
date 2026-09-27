@@ -25,7 +25,6 @@
 | [dev/API核对报告.md](dev/API核对报告.md) | 工具里定义的控件与实际 ScriptAgent4MindustryExt API 的一致性核对结论 |
 | [dev/SA4MDT-深入分析.md](dev/SA4MDT-深入分析.md) | ScriptAgent4MindustryExt 内部机制与 API 面的深入分析 |
 | [dev/新控件API核对.md](dev/新控件API核对.md) | 逐个控件的 API 离线核对记录 |
-| [dev/上传到GitHub步骤.md](dev/上传到GitHub步骤.md) | 发布者操作笔记：装 git、初始化仓库、推送、建 Release 上传 exe |
 
 这几份是**历史研究笔记**：写于工具开发过程中，用来确定「这个控件到底该生成什么代码」。里面的结论已经落到 `src/frontend/js/catalog/` 的控件目录里了，文档本身保留下来是为了记录**为什么这么写**。
 

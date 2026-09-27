@@ -1,0 +1,4 @@
+﻿Compiled from "Boolf.java"
+public interface arc.func.Boolf<T> {
+  public abstract boolean get(T);
+}

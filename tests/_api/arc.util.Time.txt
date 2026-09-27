@@ -1,0 +1,30 @@
+﻿Compiled from "Time.java"
+public class arc.util.Time {
+  public static final float toSeconds;
+  public static final float toMinutes;
+  public static final float toHours;
+  public static float delta;
+  public static float time;
+  public static float globalTime;
+  public static final long nanosPerMilli;
+  public arc.util.Time();
+  public static arc.struct.Seq<arc.util.Time$DelayRun> getRuns();
+  public static void setRuns(arc.struct.Seq<arc.util.Time$DelayRun>);
+  public static void run(float, java.lang.Runnable);
+  public static arc.util.Timer$Task runTask(float, java.lang.Runnable);
+  public static void mark();
+  public static float elapsed();
+  public static void updateGlobal();
+  public static void update();
+  public static double getInternalTime();
+  public static void setInternalTime(double);
+  public static void clear();
+  public static void setDeltaProvider(arc.func.Floatp);
+  public static long nanos();
+  public static long millis();
+  public static long nanosToMillis(long);
+  public static long millisToNanos(long);
+  public static long timeSinceNanos(long);
+  public static long timeSinceMillis(long);
+  static {};
+}

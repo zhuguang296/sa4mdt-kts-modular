@@ -1,0 +1,20 @@
+﻿Compiled from "Posc.java"
+public interface mindustry.gen.Posc extends arc.math.geom.Position,mindustry.gen.Entityc {
+  public abstract mindustry.world.blocks.environment.Floor floorOn();
+  public abstract mindustry.gen.Building buildOn();
+  public abstract boolean onSolid();
+  public abstract float getX();
+  public abstract float getY();
+  public abstract float x();
+  public abstract float y();
+  public abstract int tileX();
+  public abstract int tileY();
+  public abstract mindustry.world.Block blockOn();
+  public abstract mindustry.world.Tile tileOn();
+  public abstract void set(arc.math.geom.Position);
+  public abstract void set(float, float);
+  public abstract void trns(arc.math.geom.Position);
+  public abstract void trns(float, float);
+  public abstract void x(float);
+  public abstract void y(float);
+}

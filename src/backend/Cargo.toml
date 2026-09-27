@@ -1,0 +1,28 @@
+[package]
+name = "kts-builder"
+version = "1.1.0"
+edition = "2021"
+description = "KTS 插件工坊 —— 拖控件生成 ScriptAgent4Mindustry 脚本插件"
+authors = ["kts-builder"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.11.5", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+windows-sys = { version = "0.59.0", features = [
+    "Win32_Foundation",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Com",
+    "Win32_System_Console",
+] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -1,0 +1,4 @@
+﻿Compiled from "Intc2.java"
+public interface arc.func.Intc2 {
+  public abstract void get(int, int);
+}

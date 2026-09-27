@@ -1,0 +1,36 @@
+# ---- 构建产物 ----
+# Rust 编译输出（1.4 GB 左右，绝对不该进仓库）
+target/
+src/backend/target/
+# tauri-build 生成的代码
+gen/
+src/backend/gen/
+# NSIS 安装包也出自 target/，这里再兜一层
+src/backend/target/release/bundle/
+
+# ---- 本地运行产物 ----
+# 出问题时写在 exe 旁边的日志，属于本机数据
+logs/
+crash.log
+# 应用运行时被挤到一边的旧版本 exe
+KTS-Plugin-Workshop.exe.old
+build.log
+
+# ---- 发布件 ----
+# 发行版 exe / 安装包不进仓库，统一传到 GitHub Releases。
+# 这样仓库只有源码和文档，clone 下来 1 MB 出头。
+# 注意：live-ui / close-guard / dialog-freeze / log-file 这几个测试确实要跑
+# KTS-Plugin-Workshop.exe，但那是 build.ps1 第 5 步现生成的，不需要进仓库。
+KTS-Plugin-Workshop.exe
+*.exe
+# 发布前把安装包和 exe 复制一份到这里，方便传 Release；同样不进仓库。
+dist/
+
+# ---- 依赖 / 编辑器 ----
+node_modules/
+*.tmp
+*.tmpdir/
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

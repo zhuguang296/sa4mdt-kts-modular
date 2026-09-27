@@ -1,0 +1,33 @@
+# 统一行尾：全部按 LF 存盘、按 LF 检出。
+#
+# 这一条不是洁癖，是必需的：tests\expected\*.kts 是逐字节比对的黄金文件，
+# 而 tests\run.js 里就是拿 '\n' 切行。Git for Windows 默认 core.autocrlf=true，
+# 检出时会把 LF 换成 CRLF —— 那样黄金文件比对会全挂，build.ps1 也会不一样。
+# 强制 LF 后，不管谁 clone、在什么系统上，拿到的都是同一份字节。
+* text=auto eol=lf
+
+# 明确声明为文本（让上面那条生效，并让 GitHub 正确识别语言/统计）
+*.js    text eol=lf
+*.mjs   text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.ps1   text eol=lf
+*.rs    text eol=lf
+*.toml  text eol=lf
+*.kts   text eol=lf
+*.txt   text eol=lf
+VERSION text eol=lf
+LICENSE text eol=lf
+
+# 二进制：绝不能碰
+*.exe   binary
+*.ico   binary
+*.dll   binary
+*.png   binary
+*.jpg   binary
+
+# 语言统计：这两个目录不算进「代码占比」
+docs/dev/*   linguist-documentation
+tests/expected/* linguist-generated

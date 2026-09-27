@@ -1,0 +1,13 @@
+﻿Compiled from "Interval.java"
+public class arc.util.Interval {
+  float[] times;
+  public arc.util.Interval(int);
+  public arc.util.Interval();
+  public boolean get(float);
+  public boolean get(int, float);
+  public boolean check(int, float);
+  public void reset(int, float);
+  public void clear();
+  public float getTime(int);
+  public float[] getTimes();
+}

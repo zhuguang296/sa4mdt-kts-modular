@@ -1,0 +1,4 @@
+﻿Compiled from "Cons.java"
+public interface arc.func.Cons<T> {
+  public abstract void get(T);
+}

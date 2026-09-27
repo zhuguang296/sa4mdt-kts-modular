@@ -1,0 +1,10 @@
+﻿Compiled from "Teamc.java"
+public interface mindustry.gen.Teamc extends mindustry.gen.Entityc,mindustry.gen.Posc {
+  public abstract boolean inFogTo(mindustry.game.Team);
+  public abstract boolean cheating();
+  public abstract mindustry.game.Team team();
+  public abstract mindustry.world.blocks.storage.CoreBlock$CoreBuild closestCore();
+  public abstract mindustry.world.blocks.storage.CoreBlock$CoreBuild closestEnemyCore();
+  public abstract mindustry.world.blocks.storage.CoreBlock$CoreBuild core();
+  public abstract void team(mindustry.game.Team);
+}

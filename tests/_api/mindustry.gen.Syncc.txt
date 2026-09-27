@@ -1,0 +1,19 @@
+﻿Compiled from "Syncc.java"
+public interface mindustry.gen.Syncc extends mindustry.gen.Entityc {
+  public abstract boolean isSyncHidden(mindustry.game.Team);
+  public abstract long lastUpdated();
+  public abstract long updateSpacing();
+  public abstract void afterSync();
+  public abstract void handleSyncHidden();
+  public abstract void interpolate();
+  public abstract void lastUpdated(long);
+  public abstract void readSync(arc.util.io.Reads);
+  public abstract void readSyncManual(java.nio.FloatBuffer);
+  public abstract void remove();
+  public abstract void snapInterpolation();
+  public abstract void snapSync();
+  public abstract void update();
+  public abstract void updateSpacing(long);
+  public abstract void writeSync(arc.util.io.Writes);
+  public abstract void writeSyncManual(java.nio.FloatBuffer);
+}

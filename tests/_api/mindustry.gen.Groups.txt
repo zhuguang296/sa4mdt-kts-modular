@@ -1,0 +1,24 @@
+﻿Compiled from "Groups.java"
+public class mindustry.gen.Groups {
+  public static mindustry.entities.EntityGroup<mindustry.gen.Entityc> all;
+  public static mindustry.entities.EntityGroup<mindustry.gen.Building> build;
+  public static mindustry.entities.EntityGroup<mindustry.gen.Bullet> bullet;
+  public static mindustry.entities.EntityGroup<mindustry.gen.Drawc> draw;
+  public static mindustry.entities.EntityGroup<mindustry.gen.Fire> fire;
+  public static boolean isClearing;
+  public static mindustry.entities.EntityGroup<mindustry.gen.WorldLabel> label;
+  public static mindustry.entities.EntityGroup<mindustry.gen.Player> player;
+  public static mindustry.entities.EntityGroup<mindustry.gen.PowerGraphUpdaterc> powerGraph;
+  public static mindustry.entities.EntityGroup<mindustry.gen.Puddle> puddle;
+  public static mindustry.entities.EntityGroup<mindustry.gen.Syncc> sync;
+  public static mindustry.entities.EntityGroup<mindustry.gen.Unit> unit;
+  public static mindustry.entities.EntityGroup<mindustry.gen.WeatherState> weather;
+  public mindustry.gen.Groups();
+  public static void clear();
+  public static void init();
+  public static void queueFree(arc.util.pooling.Pool$Poolable);
+  public static void resize(float, float, float, float);
+  public static void update();
+  public static void updatePooling();
+  static {};
+}

@@ -1,0 +1,31 @@
+﻿Compiled from "Healthc.java"
+public interface mindustry.gen.Healthc extends mindustry.gen.Entityc,mindustry.gen.Posc {
+  public abstract void damageArmorMult(float, float);
+  public abstract void damageArmorMult(float, float, boolean);
+  public abstract void damagePierce(float);
+  public abstract void damagePierce(float, boolean);
+  public abstract void healFract(float);
+  public abstract void heal(float);
+  public abstract boolean damaged();
+  public abstract boolean dead();
+  public abstract boolean isValid();
+  public abstract float health();
+  public abstract float healthf();
+  public abstract float hitTime();
+  public abstract float maxHealth();
+  public abstract void clampHealth();
+  public abstract void damage(float);
+  public abstract void damage(float, boolean);
+  public abstract void damageContinuous(float);
+  public abstract void damageContinuousArmorMult(float, float);
+  public abstract void damageContinuousPierce(float);
+  public abstract void dead(boolean);
+  public abstract void heal();
+  public abstract void health(float);
+  public abstract void healthChanged();
+  public abstract void hitTime(float);
+  public abstract void kill();
+  public abstract void killed();
+  public abstract void maxHealth(float);
+  public abstract void update();
+}

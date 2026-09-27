@@ -1,0 +1,138 @@
+[
+  { "title": "单位：传送 / 回血 / 标记 / 消灭",
+    "def": "action.setHealth",
+    "chain": [
+      { "def": "event.UnitDestroyEvent", "props": {} },
+      { "def": "action.teleport", "props": { "on": "ctx", "pos": "fixed", "px": 10, "py": 20 } },
+      { "def": "action.setHealth", "props": { "on": "ctx", "mode": "ratio", "percent": 50 } },
+      { "def": "action.setFlag", "props": { "on": "ctx", "flag": 1024 } },
+      { "def": "action.killUnit", "props": { "on": "ctx", "scope": "team", "team": "crux" } }
+    ],
+    "props": { "on": "ctx", "mode": "add", "delta": -30 } },
+
+  { "title": "方块：放置带朝向",
+    "def": "action.setBlock",
+    "chain": [ { "def": "event.TapEvent", "props": {} } ],
+    "props": { "op": "place", "block": "router", "team": "sharded", "rotation": 2 } },
+
+  { "title": "核心：设为固定数量",
+    "def": "action.coreItems",
+    "chain": [ { "def": "event.BlockBuildEndEvent", "props": {} } ],
+    "props": { "op": "set", "item": "silicon", "amount": 50, "to": "fixed", "team": "sharded" } },
+
+  { "title": "条件：不满足就跳过（提前退出）",
+    "def": "condition.guard",
+    "chain": [ { "def": "event.PlayerJoin", "props": {} } ],
+    "props": { "joiner": "and", "elseMode": "return",
+      "rules": [{ "var": "player", "type": "Player", "field": "name", "op": "==", "valueSource": "literal", "value": "x" }] } },
+
+  { "title": "条件：如果是管理员",
+    "def": "condition.isAdmin",
+    "chain": [ { "def": "event.PlayerJoin", "props": {} } ],
+    "props": { "who": "ctx" } },
+
+  { "title": "条件：拥有权限（必须走非挂起的 PermissionApi.check）",
+    "def": "condition.if",
+    "chain": [ { "def": "event.PlayerJoin", "props": {} } ],
+    "props": { "joiner": "and",
+      "rules": [{ "var": "player", "type": "Player", "field": "hasPermission", "op": "==",
+        "arg": "my.plugin.use", "valueSource": "literal", "value": "true" }] } },
+
+  { "title": "循环：对每个玩家做（按队伍筛）",
+    "def": "loop.forEachPlayer",
+    "chain": [ { "def": "event.Trigger.update", "props": {} } ],
+    "props": { "itemName": "p", "filter": "team", "team": "crux" } },
+
+  { "title": "循环：对每个建筑做（只要核心）",
+    "def": "loop.forEachBuild",
+    "chain": [ { "def": "event.Trigger.update", "props": {} } ],
+    "props": { "itemName": "b", "filter": "cores" } },
+
+  { "title": "循环：只要成立就一直重复",
+    "def": "loop.while",
+    "chain": [
+      { "def": "event.PlayerJoin", "props": {} },
+      { "def": "data.value", "props": { "name": "count", "source": "number", "value": "0" } }
+    ],
+    "props": { "joiner": "and",
+      "rules": [{ "var": "count", "type": "Number", "field": "self", "op": "<", "valueSource": "literal", "value": "10" }] } },
+
+  { "title": "循环：带序号逐项 + 用序号拼消息",
+    "def": "action.broadcast",
+    "chain": [
+      { "def": "event.PlayerJoin", "props": {} },
+      { "def": "data.list", "props": { "name": "names", "itemType": "String", "item": "a,b" } },
+      { "def": "loop.forEachIndexed", "props": { "list": "names", "idxName": "i", "itemName": "v" } }
+    ],
+    "props": { "target": "all", "text": "第{i}项={v}", "msgType": "MsgType.Message" } },
+
+  { "title": "查找：范围内的方块 + 数附近的敌人",
+    "def": "query.countUnits",
+    "chain": [
+      { "def": "event.TapEvent", "props": {} },
+      { "def": "query.blocks", "props": { "name": "tiles", "radius": 5, "at": "tile" } }
+    ],
+    "props": { "name": "n", "radius": 80, "at": "tile", "what": "enemy" } },
+
+  { "title": "查找：找最近的敌人",
+    "def": "query.closestEnemy",
+    "chain": [ { "def": "event.UnitDestroyEvent", "props": {} } ],
+    "props": { "name": "target", "range": 200, "at": "unit" } },
+
+  { "title": "数据：列表（同链两个操作，检查变量重名）",
+    "def": "data.listOp",
+    "chain": [
+      { "def": "event.PlayerJoin", "props": {} },
+      { "def": "data.list", "props": { "name": "names", "itemType": "String", "item": "a" } },
+      { "def": "data.listOp", "props": { "op": "size", "list": "names" } }
+    ],
+    "props": { "op": "contains", "list": "names", "value3": "x" } },
+
+  { "title": "数据：对照表按 uuid 存分 + 读回",
+    "def": "data.mapOp",
+    "chain": [
+      { "def": "event.PlayerJoin", "props": {} },
+      { "def": "data.map", "props": { "name": "scores" } },
+      { "def": "data.mapOp", "props": { "op": "put", "map": "scores", "key": "{player.uuid()}", "value": 5 } }
+    ],
+    "props": { "op": "get", "map": "scores", "key": "{player.uuid()}" } },
+
+  { "title": "数据：改变一个值（上游必须是 var 才能 +=）",
+    "def": "data.set",
+    "chain": [
+      { "def": "event.PlayerJoin", "props": {} },
+      { "def": "data.value", "props": { "name": "count", "source": "number", "value": "0" } }
+    ],
+    "props": { "name": "count", "op": "add", "value": 1 } },
+
+  { "title": "小工具：日志（占位符转 Kotlin 模板，含 $ 与未知变量）",
+    "def": "util.log",
+    "chain": [ { "def": "event.PlayerJoin", "props": {} } ],
+    "props": { "text": "玩家 {player.name} 进来了，坐标 {player.tileX}，价格 $100，未知 {nobody}" } },
+
+  { "title": "小工具：按概率触发",
+    "def": "util.chance",
+    "chain": [ { "def": "event.PlayerJoin", "props": {} } ],
+    "props": { "percent": 30 } },
+
+  { "title": "小工具：在计时里等几秒",
+    "def": "util.waitSeconds",
+    "chain": [
+      { "def": "event.PlayerJoin", "props": {} },
+      { "def": "timer.every", "props": { "ms": 30000, "firstDelay": true } }
+    ],
+    "props": { "seconds": 2 } },
+
+  { "title": "公告（给上游那个玩家看）",
+    "def": "action.announceBig",
+    "chain": [ { "def": "event.PlayerJoin", "props": {} } ],
+    "props": { "kind": "warn", "text": "注意 {player.name}", "target": "player" } },
+
+  { "title": "提前退出（循环内应生成 return@forEach）",
+    "def": "action.returnNow",
+    "chain": [
+      { "def": "event.Trigger.update", "props": {} },
+      { "def": "loop.forEachPlayer", "props": { "itemName": "p", "filter": "all" } }
+    ],
+    "props": {} }
+]

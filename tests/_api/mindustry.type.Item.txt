@@ -1,0 +1,29 @@
+﻿Compiled from "Item.java"
+public class mindustry.type.Item extends mindustry.ctype.UnlockableContent implements mindustry.logic.Senseable {
+  public arc.graphics.Color color;
+  public float explosiveness;
+  public float flammability;
+  public float radioactivity;
+  public float charge;
+  public int hardness;
+  public float cost;
+  public float healthScaling;
+  public boolean lowPriority;
+  public int frames;
+  public int transitionFrames;
+  public float frameTime;
+  public boolean buildable;
+  public boolean hidden;
+  public mindustry.type.Item(java.lang.String, arc.graphics.Color);
+  public mindustry.type.Item(java.lang.String);
+  public boolean isOnPlanet(mindustry.type.Planet);
+  public boolean isHidden();
+  public void loadIcon();
+  public void setStats();
+  public java.lang.String toString();
+  public mindustry.ctype.ContentType getContentType();
+  public void createIcons(mindustry.graphics.MultiPacker);
+  public double sense(mindustry.logic.LAccess);
+  public java.lang.Object senseObject(mindustry.logic.LAccess);
+  public static arc.struct.Seq<mindustry.type.Item> getAllOres();
+}

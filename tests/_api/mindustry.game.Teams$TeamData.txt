@@ -1,0 +1,39 @@
+﻿Compiled from "Teams.java"
+public class mindustry.game.Teams$TeamData {
+  public final mindustry.game.Team team;
+  public mindustry.ai.BaseBuilderAI buildAi;
+  public mindustry.ai.RtsAI rtsAi;
+  public mindustry.game.Team[] coreEnemies;
+  public arc.struct.Queue<mindustry.game.Teams$BlockPlan> plans;
+  public final arc.struct.Seq<mindustry.world.blocks.storage.CoreBlock$CoreBuild> cores;
+  public mindustry.world.blocks.storage.CoreBlock$CoreBuild lastCore;
+  public arc.math.geom.QuadTree<mindustry.gen.Building> buildingTree;
+  public arc.math.geom.QuadTree<mindustry.gen.Building> turretTree;
+  public arc.math.geom.QuadTree<mindustry.gen.Unit> unitTree;
+  public int unitCap;
+  public int unitCount;
+  public int[] typeCounts;
+  public arc.struct.ObjectMap<mindustry.world.Block, arc.struct.Seq<mindustry.gen.Building>> buildingTypes;
+  public arc.struct.Seq<mindustry.gen.Unit> units;
+  public arc.struct.Seq<mindustry.gen.Player> players;
+  public arc.struct.Seq<mindustry.gen.Building> buildings;
+  public arc.struct.Seq<mindustry.gen.Unit>[] unitsByType;
+  public mindustry.game.Teams$TeamData(mindustry.game.Team);
+  public arc.struct.Seq<mindustry.gen.Building> getBuildings(mindustry.world.Block);
+  public int getCount(mindustry.world.Block);
+  public void destroyToDerelict();
+  public void timeDestroy(float, float, float);
+  public arc.struct.Seq<mindustry.gen.Unit> getUnits(mindustry.type.UnitType);
+  public arc.struct.Seq<mindustry.gen.Unit> unitCache(mindustry.type.UnitType);
+  public void updateCount(mindustry.type.UnitType, int);
+  public arc.math.geom.QuadTree<mindustry.gen.Unit> tree();
+  public int countType(mindustry.type.UnitType);
+  public boolean active();
+  public boolean hasCore();
+  public boolean isAlive();
+  public boolean noCores();
+  public mindustry.world.blocks.storage.CoreBlock$CoreBuild core();
+  public boolean hasAI();
+  public java.lang.String toString();
+  static {};
+}

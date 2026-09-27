@@ -1,0 +1,44 @@
+﻿Compiled from "Team.java"
+public class mindustry.game.Team implements java.lang.Comparable<mindustry.game.Team>, mindustry.logic.Senseable {
+  public final int id;
+  public final arc.graphics.Color color;
+  public final arc.graphics.Color[] palette;
+  public final int[] palettei;
+  public boolean ignoreUnitCap;
+  public java.lang.String emoji;
+  public boolean hasPalette;
+  public java.lang.String name;
+  public static final mindustry.game.Team[] all;
+  public static final mindustry.game.Team[] baseTeams;
+  public static final mindustry.game.Team derelict;
+  public static final mindustry.game.Team sharded;
+  public static final mindustry.game.Team crux;
+  public static final mindustry.game.Team malis;
+  public static final mindustry.game.Team green;
+  public static final mindustry.game.Team blue;
+  public static final mindustry.game.Team neoplastic;
+  public static mindustry.game.Team get(int);
+  protected mindustry.game.Team(int, java.lang.String, arc.graphics.Color);
+  protected mindustry.game.Team(int, java.lang.String, arc.graphics.Color, arc.graphics.Color, arc.graphics.Color, arc.graphics.Color);
+  public mindustry.world.modules.ItemModule items();
+  public mindustry.game.Rules$TeamRule rules();
+  public mindustry.game.Teams$TeamData data();
+  public mindustry.world.blocks.storage.CoreBlock$CoreBuild core();
+  public boolean active();
+  public boolean isAlive();
+  public boolean isAI();
+  public boolean isOnlyAI();
+  public boolean needsFlowField();
+  public boolean activateUnitFactories();
+  public arc.struct.Seq<mindustry.world.blocks.storage.CoreBlock$CoreBuild> cores();
+  public java.lang.String localized();
+  public java.lang.String coloredName();
+  public void setPalette(arc.graphics.Color);
+  public void setPalette(arc.graphics.Color, arc.graphics.Color, arc.graphics.Color);
+  public int compareTo(mindustry.game.Team);
+  public java.lang.String toString();
+  public double sense(mindustry.logic.LAccess);
+  public java.lang.Object senseObject(mindustry.logic.LAccess);
+  public int compareTo(java.lang.Object);
+  static {};
+}

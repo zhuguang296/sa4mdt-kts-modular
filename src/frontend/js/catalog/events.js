@@ -1,0 +1,292 @@
+// 事件控件目录
+// contexts 是事件天然提供的变量，会按「实际是否被用到」生成 val 绑定；
+// noBind: true 表示变量已在作用域里（如指令体内的 player!!），不要再生成 val。
+// 所有字段访问方式均已在工作区脚本中核实
+
+/** 造一个事件控件定义 */
+function ev({ key, label, terms, codeHint, trigger, contexts = [], note, level = 'basic', guard, labelName = 'listen' }) {
+  return {
+    key,
+    category: 'event',
+    level,
+    label,
+    terms,
+    codeHint,
+    note,
+    contexts,
+    // Kotlin 标签：listen 的 lambda 用 return@listen，onEnable 用 return@onEnable
+    labelName,
+    inPorts: [],
+    outPorts: [{ id: 'out', type: 'flow', opensBlock: true }],
+    closers: { out: '}' },
+    props: [],
+    emit() {
+      // guard：有些事件的字段是可空的，直接 !! 会在特定情况下崩，
+      // 所以在最前面加一行提前返回。
+      const lines = [trigger];
+      if (guard) lines.push(guard);
+      return { lines };
+    },
+  };
+}
+
+export const EVENTS = [
+  ev({
+    key: 'event.Trigger.update',
+    label: '每帧更新',
+    terms: 'Trigger.update 每帧 loop 周期 检测 更新',
+    codeHint: 'listen(EventType.Trigger.update)',
+    trigger: 'listen(EventType.Trigger.update) {',
+    note: '游戏每一帧都会执行一次，适合做持续检测。注意别在里面写很重的操作。',
+  }),
+  ev({
+    key: 'event.PlayerJoin',
+    label: '玩家进服',
+    terms: 'PlayerJoin player 加入 进服 进入 上线',
+    codeHint: 'listen<EventType.PlayerJoin>',
+    trigger: 'listen<EventType.PlayerJoin> {',
+    contexts: [{ name: 'player', type: 'Player', expr: 'it.player' }],
+    note: '有人连进服务器时触发',
+  }),
+  ev({
+    key: 'event.PlayerLeave',
+    label: '玩家离服',
+    terms: 'PlayerLeave player 离开 退出 掉线 下线',
+    codeHint: 'listen<EventType.PlayerLeave>',
+    trigger: 'listen<EventType.PlayerLeave> {',
+    contexts: [{ name: 'player', type: 'Player', expr: 'it.player' }],
+    note: '有人断开连接时触发',
+  }),
+  ev({
+    key: 'event.PlayerChatEvent',
+    label: '玩家发言',
+    terms: 'PlayerChatEvent chat message 聊天 说话 发言 关键词',
+    codeHint: 'listen<EventType.PlayerChatEvent>',
+    trigger: 'listen<EventType.PlayerChatEvent> {',
+    contexts: [
+      { name: 'player', type: 'Player', expr: 'it.player' },
+      { name: 'message', type: 'String', expr: 'it.message' },
+    ],
+    note: '玩家在聊天栏说话时触发，可用来做关键词响应',
+  }),
+  ev({
+    key: 'event.BlockBuildEndEvent',
+    label: '方块建成 / 被拆',
+    terms: 'BlockBuildEndEvent build tile breaking 建造 建筑 建成 拆除',
+    codeHint: 'listen<EventType.BlockBuildEndEvent>',
+    trigger: 'listen<EventType.BlockBuildEndEvent> {',
+    contexts: [
+      { name: 'tile', type: 'Tile', expr: 'it.tile' },
+      { name: 'team', type: 'Team', expr: 'it.team' },
+      { name: 'breaking', type: 'Boolean', expr: 'it.breaking' },
+    ],
+    note: '建造或拆除完成时触发；breaking 为「真」表示这次是拆除',
+  }),
+  ev({
+    key: 'event.BlockDestroyEvent',
+    label: '方块被摧毁',
+    terms: 'BlockDestroyEvent tile 摧毁 破坏 炸毁',
+    codeHint: 'listen<EventType.BlockDestroyEvent>',
+    trigger: 'listen<EventType.BlockDestroyEvent> {',
+    contexts: [{ name: 'tile', type: 'Tile', expr: 'it.tile' }],
+    note: '方块被摧毁时触发',
+  }),
+  ev({
+    key: 'event.UnitDestroyEvent',
+    label: '单位死亡',
+    terms: 'UnitDestroyEvent unit 死亡 阵亡 击杀 消灭',
+    codeHint: 'listen<EventType.UnitDestroyEvent>',
+    trigger: 'listen<EventType.UnitDestroyEvent> {',
+    contexts: [{ name: 'unit', type: 'Unit', expr: 'it.unit' }],
+    note: '单位被消灭时触发',
+  }),
+  ev({
+    key: 'event.UnitCreateEvent',
+    label: '单位生成',
+    terms: 'UnitCreateEvent unit 生成 刷出 spawn 刷怪',
+    codeHint: 'listen<EventType.UnitCreateEvent>',
+    trigger: 'listen<EventType.UnitCreateEvent> {',
+    contexts: [{ name: 'unit', type: 'Unit', expr: 'it.unit' }],
+    note: '有单位被创建时触发（也包括敌人刷怪）',
+  }),
+  ev({
+    key: 'event.WorldLoadEvent',
+    label: '地图加载完成',
+    terms: 'WorldLoadEvent 地图 加载 开局 world 开始',
+    codeHint: 'listen<EventType.WorldLoadEvent>',
+    trigger: 'listen<EventType.WorldLoadEvent> {',
+    note: '地图加载完成时触发，适合做开局初始化',
+  }),
+  ev({
+    key: 'event.GameOverEvent',
+    label: '游戏结束',
+    terms: 'GameOverEvent winner 结束 胜利 失败 投降',
+    codeHint: 'listen<EventType.GameOverEvent>',
+    trigger: 'listen<EventType.GameOverEvent> {',
+    contexts: [{ name: 'winner', type: 'Team', expr: 'it.winner' }],
+    note: '本局结束时触发，winner 是获胜队伍',
+  }),
+  ev({
+    key: 'event.TapEvent',
+    label: '玩家点击方块',
+    terms: 'TapEvent tile player 点击 tap 交互 菜单 触碰',
+    codeHint: 'listen<EventType.TapEvent>',
+    trigger: 'listen<EventType.TapEvent> {',
+    contexts: [
+      { name: 'player', type: 'Player', expr: 'it.player' },
+      { name: 'tile', type: 'Tile', expr: 'it.tile' },
+    ],
+    note: '玩家点击地图上某个方块时触发，可用来做菜单',
+  }),
+  ev({
+    key: 'event.WaveEvent',
+    label: '波次开始',
+    terms: 'WaveEvent 波数 波次 刷怪 wave 下一波',
+    codeHint: 'listen<EventType.WaveEvent>',
+    trigger: 'listen<EventType.WaveEvent> {',
+    note: '每一波敌人开始时触发。当前波数可以用「记住一个值」取 state.wave 得到。',
+  }),
+
+  // ---- 更多事件（全部已在工作区脚本中核实） ----
+  ev({
+    key: 'event.PlayerConnect',
+    label: '玩家连接（进服前）',
+    terms: 'PlayerConnect 连接 进服前 登录 验证 白名单 ban',
+    codeHint: 'listen<EventType.PlayerConnect>',
+    trigger: 'listen<EventType.PlayerConnect> {',
+    contexts: [{ name: 'player', type: 'Player', expr: 'it.player' }],
+    note: '玩家刚连上来、还没真正进服时触发。适合做白名单、封禁检查（可以用「对玩家操作」踢掉）。',
+  }),
+  ev({
+    key: 'event.BlockBuildBeginEvent',
+    label: '开始建造 / 拆除',
+    terms: 'BlockBuildBeginEvent 建造 开始 放置 building 动工',
+    codeHint: 'listen<EventType.BlockBuildBeginEvent>',
+    trigger: 'listen<EventType.BlockBuildBeginEvent> {',
+    contexts: [
+      { name: 'tile', type: 'Tile', expr: 'it.tile' },
+      { name: 'unit', type: 'Unit', expr: 'it.unit' },
+      { name: 'breaking', type: 'Boolean', expr: 'it.breaking' },
+    ],
+    note: '刚开始建造（还没建完）或刚开始拆除时触发。breaking 为「真」表示这次是拆除。',
+  }),
+  ev({
+    key: 'event.TileChangeEvent',
+    label: '方块发生变化',
+    terms: 'TileChangeEvent 方块 变化 改变 替换 地板',
+    codeHint: 'listen<EventType.TileChangeEvent>',
+    trigger: 'listen<EventType.TileChangeEvent> {',
+    contexts: [{ name: 'tile', type: 'Tile', expr: 'it.tile' }],
+    note: '某格的方块 / 地板被替换时触发',
+  }),
+  ev({
+    key: 'event.UnitSpawnEvent',
+    label: '单位被放出',
+    terms: 'UnitSpawnEvent 单位 放出 出厂 卸载 spawn',
+    codeHint: 'listen<EventType.UnitSpawnEvent>',
+    trigger: 'listen<EventType.UnitSpawnEvent> {',
+    contexts: [{ name: 'unit', type: 'Unit', expr: 'it.unit' }],
+    note: '单位从工厂 / 载荷里被放出时触发',
+  }),
+  ev({
+    key: 'event.UnitUnloadEvent',
+    label: '单位被装载',
+    terms: 'UnitUnloadEvent 单位 装载 装入 上船 payload',
+    codeHint: 'listen<EventType.UnitUnloadEvent>',
+    trigger: 'listen<EventType.UnitUnloadEvent> {',
+    contexts: [{ name: 'unit', type: 'Unit', expr: 'it.unit' }],
+    note: '单位被装进载荷（比如运输机）时触发',
+  }),
+  ev({
+    key: 'event.WorldLoadEndEvent',
+    label: '地图加载收尾',
+    terms: 'WorldLoadEndEvent 地图 加载 收尾 world 开局',
+    codeHint: 'listen<EventType.WorldLoadEndEvent>',
+    trigger: 'listen<EventType.WorldLoadEndEvent> {',
+    note: '地图加载完成之后、正式开始前触发。比「地图加载完成」更晚，适合做最后的初始化。',
+  }),
+  ev({
+    key: 'event.ResetEvent',
+    label: '本局重置',
+    terms: 'ResetEvent 重置 重开 清理 换图 reset',
+    codeHint: 'listen<EventType.ResetEvent>',
+    trigger: 'listen<EventType.ResetEvent> {',
+    note: '本局结束、地图重新开始时触发。适合清理上一局残留的数据。',
+  }),
+  ev({
+    key: 'event.StateChangeEvent',
+    label: '游戏状态变化',
+    terms: 'StateChangeEvent 状态 切换 菜单 暂停 gamestate',
+    codeHint: 'listen<EventType.StateChangeEvent>',
+    trigger: 'listen<EventType.StateChangeEvent> {',
+    contexts: [{ name: 'to', type: 'String', expr: 'it.to.name' }],
+    note: '游戏大状态切换时触发（比如回到菜单）。to 是切换后的状态名。',
+  }),
+  ev({
+    key: 'event.CoreChangeEvent',
+    label: '核心易主',
+    terms: 'CoreChangeEvent 核心 易主 占领 归属 core',
+    codeHint: 'listen<EventType.CoreChangeEvent>',
+    trigger: 'listen<EventType.CoreChangeEvent> {',
+    contexts: [{ name: 'team', type: 'Team', expr: 'it.core.team' }],
+    note: '某座核心换了归属队伍时触发，team 是新的所属队伍',
+  }),
+  ev({
+    key: 'event.ConfigEvent',
+    label: '建筑被配置',
+    terms: 'ConfigEvent 配置 设置 建筑 玩家 configure',
+    codeHint: 'listen<EventType.ConfigEvent>',
+    trigger: 'listen<EventType.ConfigEvent> {',
+    contexts: [
+      { name: 'player', type: 'Player', expr: 'it.player!!' },
+      { name: 'tile', type: 'Tile', expr: 'it.tile.tile' },
+    ],
+    note: '玩家调整某个建筑的配置时触发（比如设置装卸器的过滤）。逻辑配置（没有玩家）会被自动跳过。',
+    guard: 'if (it.player == null) return@listen',
+  }),
+  ev({
+    key: 'event.PlayEvent',
+    label: '开始正式游戏',
+    terms: 'PlayEvent 开始 正式 进入游戏 play',
+    codeHint: 'listen<EventType.PlayEvent>',
+    trigger: 'listen<EventType.PlayEvent> {',
+    note: '服务器从「准备」进入正式游戏时触发一次',
+  }),
+  ev({
+    key: 'event.TextInputEvent',
+    label: '玩家填了输入框',
+    terms: 'TextInputEvent 输入框 填空 打字 文本 textInput',
+    codeHint: 'listen<EventType.TextInputEvent>',
+    // 注意：这个事件类型是 EventType 的嵌套类，写成 EventType.TextInputEvent 不需要额外 import
+    trigger: 'listen<EventType.TextInputEvent> {',
+    contexts: [
+      { name: 'player', type: 'Player', expr: 'it.player' },
+      { name: 'text', type: 'String', expr: 'it.text' },
+      { name: 'textInputId', type: 'Number', expr: 'it.textInputId' },
+    ],
+    note: '玩家在游戏里弹出的输入框里填完内容并确认时触发，text 就是填的内容',
+    level: 'advanced',
+  }),
+
+  // ---- 脚本生命周期 ----
+  ev({
+    key: 'event.onEnable',
+    label: '脚本启用时',
+    terms: 'onEnable 启用 启动 加载 初始化 enable',
+    codeHint: 'onEnable',
+    trigger: 'onEnable {',
+    note: '这个脚本被加载 / 启用时执行一次',
+    level: 'advanced',
+    labelName: 'onEnable',
+  }),
+  ev({
+    key: 'event.onDisable',
+    label: '脚本关闭时',
+    terms: 'onDisable 关闭 禁用 卸载 disable',
+    codeHint: 'onDisable',
+    trigger: 'onDisable {',
+    note: '这个脚本被关闭 / 卸载时执行一次',
+    level: 'advanced',
+    labelName: 'onDisable',
+  }),
+];

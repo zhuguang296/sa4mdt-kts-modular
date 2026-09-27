@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KTS 插件工坊</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="app">
+
+  <div id="toolbar">
+    <div class="tb-title">KTS 插件工坊<small>拖控件 → 导出 .kts</small></div>
+
+    <div class="tb-group">
+      <button data-act="newProject" title="清空并重新开始">新建</button>
+      <button data-act="open" title="打开一个 .saproj 工程文件">打开</button>
+      <button data-act="save" title="保存为 .saproj 工程文件（Ctrl+S）">保存</button>
+    </div>
+    <div class="tb-sep"></div>
+
+    <div class="tb-group">
+      <button data-act="template" title="套用一个能直接用的例子">套用模板</button>
+      <button data-act="newModule" title="新建一个模块（导出后是一个目录）">新建模块</button>
+      <button data-act="modules" title="查看 / 删除已有的模块">模块管理</button>
+    </div>
+    <div class="tb-sep"></div>
+
+    <div class="tb-group">
+      <button class="icon" data-act="undo" title="撤销（Ctrl+Z）">&#8630;</button>
+      <button class="icon" data-act="redo" title="重做（Ctrl+Y）">&#8631;</button>
+    </div>
+    <div class="tb-sep"></div>
+
+    <div class="tb-group">
+      <button class="icon" data-act="zout" title="缩小">&minus;</button>
+      <button class="icon" data-act="fit" title="让所有方块都显示出来">适应</button>
+      <button class="icon" data-act="zin" title="放大">+</button>
+    </div>
+    <div class="tb-sep"></div>
+
+    <div class="tb-group">
+      <button data-act="importKts" title="把本工具导出过的 .kts 文件还原成画布">从代码还原</button>
+      <button data-act="help">怎么用</button>
+      <button data-act="fullscreen" id="tbFullscreen" title="全屏 / 退出全屏（F11，Esc 也能退出）">全屏</button>
+      <button data-act="settings" title="界面、画布、导出等偏好设置">设置</button>
+    </div>
+
+    <div class="tb-spacer"></div>
+
+    <div class="tb-group">
+      <button data-act="preview">代码预览</button>
+      <button class="primary" data-act="export" title="生成插件文件（Ctrl+Enter）">导出插件</button>
+    </div>
+  </div>
+
+  <div id="main">
+    <div id="left">
+      <div id="libHead">
+        <h3>控件库</h3>
+        <input id="libSearch" type="text" placeholder="搜索：玩家、消息、定时…" autocomplete="off">
+      </div>
+      <div id="lib"></div>
+    </div>
+
+    <div id="center">
+      <div id="tabs"></div>
+      <div id="canvas"></div>
+    </div>
+
+    <div id="right">
+      <div id="inspector"></div>
+    </div>
+  </div>
+
+  <div id="status"></div>
+</div>
+
+<!-- 设置页：整窗替换主界面，由 js/settingspage.js 填充 -->
+<div id="settings" hidden></div>
+
+<div id="modal" hidden></div>
+<div id="fatal" hidden></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+﻿Compiled from "EntityGroup.java"
+public class mindustry.entities.EntityGroup<T extends mindustry.gen.Entityc> implements java.lang.Iterable<T> {
+  public static int nextId();
+  public static void checkNextId(int);
+  public mindustry.entities.EntityGroup(java.lang.Class<T>, boolean, boolean);
+  public mindustry.entities.EntityGroup(java.lang.Class<T>, boolean, boolean, mindustry.entities.EntityIndexer);
+  public arc.struct.Seq<T> checkIDCollisions();
+  public void sort(java.util.Comparator<? super T>);
+  public void collide();
+  public void updatePhysics();
+  public void update();
+  public void fixedUpdate(int);
+  public void fixedUpdate(int, int);
+  public arc.struct.Seq<T> copy();
+  public arc.struct.Seq<T> copy(arc.struct.Seq<T>);
+  public void each(arc.func.Cons<T>);
+  public void each(arc.func.Boolf<T>, arc.func.Cons<T>);
+  public void draw(arc.func.Cons<T>);
+  public boolean useTree();
+  public boolean mappingEnabled();
+  public T getByID(int);
+  public void removeByID(int);
+  public void intersect(float, float, float, float, arc.func.Cons<? super T>);
+  public boolean intersect(float, float, float, float, arc.func.Boolf<? super T>);
+  public arc.struct.Seq<T> intersect(float, float, float, float);
+  public arc.math.geom.QuadTree tree();
+  public void resize(float, float, float, float);
+  public boolean isEmpty();
+  public T index(int);
+  public int size();
+  public boolean contains(arc.func.Boolf<T>);
+  public int count(arc.func.Boolf<T>);
+  public void add(T);
+  public int addIndex(T);
+  public void remove(T);
+  public void removeIndex(T, int);
+  public void clear();
+  public T find(arc.func.Boolf<T>);
+  public T first();
+  public java.util.Iterator<T> iterator();
+  static {};
+}

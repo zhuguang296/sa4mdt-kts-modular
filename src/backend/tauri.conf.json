@@ -1,0 +1,29 @@
+{
+  "productName": "KTS-Plugin-Workshop",
+  "version": "1.1.0",
+  "identifier": "top.tinylake.ktsbuilder",
+  "build": { "frontendDist": "../frontend" },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [{
+      "title": "KTS 插件工坊",
+      "width": 1440, "height": 900,
+      "minWidth": 1100, "minHeight": 700,
+      "resizable": true,
+      "dragDropEnabled": false
+    }],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.ico"],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["SimpChinese", "English"],
+        "displayLanguageSelector": false
+      }
+    }
+  }
+}

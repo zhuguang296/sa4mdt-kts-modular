@@ -110,23 +110,115 @@ console.log('\n=== 3. 控件库折叠 ===');
   else bad('折叠按钮缺 aria-expanded');
 }
 
-// ---------------- 4. 欢迎页 ----------------
+// ---------------- 4. 首页（主界面） ----------------
 
-console.log('\n=== 4. 欢迎页 ===');
+console.log('\n=== 4. 首页 ===');
 {
-  // 曾经的 bug：卡片是 <button data-ob>，但 modal() 只给 [data-btn] 挂事件，
-  // 于是三个卡片完全点不动，只有「以后再说」能用。
-  const cards = [...uiSrc.matchAll(/class="ob-card"[^>]*data-ob="(\w+)"/g)].map((m) => m[1]);
-  if (cards.length !== 3) bad(`欢迎页入口卡片应 3 个，实际 ${cards.length} 个`);
-  else if (!/querySelectorAll\('\.ob-card'\)/.test(uiSrc)) bad('欢迎页卡片没有单独挂事件');
-  else ok(`3 个入口卡片（${cards.join(' / ')}）都挂了 click`);
+  const homeSrc = readFileSync(join(ROOT, 'src/frontend/js/home.js'), 'utf8');
 
-  for (const [k, label] of [['new', '新建工程'], ['open', '打开工程'], ['template', '套用模板']]) {
-    if (!cards.includes(k)) bad(`缺少「${label}」入口`);
+  // 欢迎弹窗已经删掉，整件事都归首页
+  if (/showOnboarding/.test(uiSrc)) bad('ui.js 里还留着 showOnboarding（应由首页接管）');
+  else ok('欢迎弹窗已删除，启动进首页');
+
+  // 首页必须是整窗视图，不能是弹窗
+  if (/#home\s*\{[^}]*position:\s*fixed/.test(css)) ok('#home 是整窗视图');
+  else bad('#home 不是整窗视图（position: fixed）');
+  if (/<div id="home"/.test(html)) ok('index.html 里有 #home 容器');
+  else bad('index.html 缺少 #home 容器');
+
+  // 启动就进首页
+  if (/this\.openHome\(\)/.test(uiSrc)) ok('start() 启动进首页');
+  else bad('启动没有进首页');
+
+  // 能回到首页 + 能进画布
+  if (/data-act="home"/.test(html)) ok('工具栏有「主页」按钮');
+  else bad('工具栏没有回主页的入口');
+  if (/enterModule/.test(uiSrc) && /onOpenCanvas/.test(homeSrc)) ok('点插件组能进画布');
+  else bad('首页没有「进入插件组」的入口');
+
+  // 首页三件事：新建插件组 / 设置 / 打开工程
+  if (/新建插件组/.test(homeSrc)) ok('首页能新建插件组');
+  else bad('首页没有「新建插件组」');
+  if (/data-hact="settings"/.test(homeSrc)) ok('首页能进设置');
+  else bad('首页没有设置入口');
+
+  // 新建完必须留在首页（用户明确要求），不能跳画布。
+  // 第 15 轮：新建插件组改走 ui.js 的弹窗（填名字 + 选模板），
+  // 所以这里改查「首页发起 → 弹窗建组 → 不调 enterModule/closeHome」。
+  if (/onNewModule/.test(homeSrc) && /newModuleFromHome/.test(uiSrc)) {
+    // 从**方法定义**处匹配（97 行的回调只是引用，不含方法体）
+    const fn = uiSrc.match(/async newModuleFromHome\(\)[\s\S]*?\n  \}\n/);
+    const bodyText = fn ? fn[0] : '';
+    // 「不跳走」= 弹窗里不调 closeHome / enterModule（建完仍停在首页列表）
+    if (/store\.addModule/.test(bodyText) && !/closeHome|enterModule/.test(bodyText)) {
+      ok('新建插件组后留在首页（弹窗建完直接出现在列表里）');
+    } else {
+      bad('新建插件组的弹窗要么没建组，要么建完跳走了');
+    }
+  } else {
+    bad('首页的「新建插件组」没有接到 ui.js 的弹窗上');
   }
-  // 必须留一个跳过出口
-  if (/obSkip/.test(uiSrc)) ok('保留了「以后再说」跳过出口');
-  else bad('欢迎页没有跳过出口');
+
+  // 首页要能显示每个插件组的规模
+  if (/nodeCount|edgeCount/.test(homeSrc)) ok('首页列出每个插件组的画布/控件数量');
+  else bad('首页没有显示插件组规模');
+
+  // 首页不直接依赖 ui.js（会成环），动作靠注入
+  if (!/from '\.\/ui\.js'/.test(homeSrc)) ok('home.js 不反向依赖 ui.js（无循环）');
+  else bad('home.js 反向 import 了 ui.js，会成环');
+}
+
+// ---------------- 4b. 每个控件分类都要有配色 ----------------
+//
+// 新增一个分类时最容易漏掉 CSS：控件卡片还是灰的、画布上节点也没有配色，
+// 但界面**不报错**，只是「看着不对」。两类漏法都查：
+//   * 有 .lib-card 规则、没有 .cv-node / .cv-dropzone 规则
+//   * 两套主题里漏了 --nc-<cat> 或 --nc-line-<cat>
+console.log('\n=== 4b. 分类配色完整 ===');
+{
+  const idxSrc = readFileSync(join(ROOT, 'src/frontend/js/catalog/index.js'), 'utf8');
+  const labelBlock = idxSrc.slice(idxSrc.indexOf('CATEGORY_LABEL'));
+  const catKeys = [...labelBlock.matchAll(/^\s{2}([a-z][a-z0-9]*):\s*'/gm)].map(m => m[1]);
+  if (!catKeys.length) bad('没能从 CATEGORY_LABEL 里读出分类');
+
+  // 浅色 :root 和深色 [data-theme="dark"] 两块
+  const rootStart = css.indexOf(':root');
+  const block = (from) => {
+    const s = css.indexOf('{', from);
+    let d = 0, j = s;
+    for (; j < css.length; j++) {
+      if (css[j] === '{') d++;
+      else if (css[j] === '}') { d--; if (!d) break; }
+    }
+    return css.slice(s + 1, j);
+  };
+  const light = block(rootStart);
+  const dark = block(css.indexOf('[data-theme="dark"]'));
+
+  const missing = [];
+  for (const c of catKeys) {
+    for (const sel of [`.lib-card[data-cat="${c}"]`, `.cv-node[data-cat="${c}"]`, `.cv-dropzone[data-cat="${c}"]`]) {
+      if (!css.includes(sel)) missing.push(sel);
+    }
+    for (const v of [`--nc-${c}`, `--nc-line-${c}`]) {
+      if (!new RegExp(v + '\\s*:').test(light)) missing.push(`${v}（浅色）`);
+      if (!new RegExp(v + '\\s*:').test(dark)) missing.push(`${v}（深色）`);
+    }
+  }
+  if (missing.length) {
+    bad(`${catKeys.length} 个分类里缺 ${missing.length} 处配色：`);
+    for (const m of missing) console.log('       · ' + m);
+  } else {
+    ok(`${catKeys.length} 个分类（${catKeys.join('/')}）的卡片/节点/落点 + 两套主题配色都齐`);
+  }
+
+  // 反向：CSS 里写了配色，但分类已经不存在了（改名/删除后的残留）
+  const stray = [];
+  for (const m of css.matchAll(/data-cat="([a-z][a-z0-9]*)"/g)) {
+    if (!catKeys.includes(m[1]) && !stray.includes(m[1])) stray.push(m[1]);
+  }
+  if (stray.length) bad(`CSS 里有已不存在的分类配色：${stray.join(', ')}`);
+  else ok('没有残留的废弃分类配色');
 }
 
 // ---------------- 5. 代码预览不重复 ----------------
@@ -394,7 +486,7 @@ console.log('\n=== 8. 关窗提醒 · 设置页 · 网格 ===');
 
   // 其余破坏性动作也要问。
   // 「打开工程」的询问放在 openProject() 里面（而不是分发那一行），
-  // 因为它还可能被欢迎页等其他入口调到 —— 放在函数里才拦得住所有调用路径。
+  // 因为它还可能被首页等其他入口调到 —— 放在函数里才拦得住所有调用路径。
   for (const [label, re] of [
     ['新建工程', /act === 'newProject'[^\n]*confirmUnsaved/],
     ['打开工程', /async openProject\(\)[^]*?confirmUnsaved\(/],
@@ -426,7 +518,7 @@ console.log('\n=== 8. 关窗提醒 · 设置页 · 网格 ===');
   if (/data-del=/.test(uiSrc2) && /\[data-del\]'\)\.forEach/.test(uiSrc2.replace(/\s+/g, ' '))) {
     ok('模块列表里的删除按钮自己挂了事件（modal 只自动挂 [data-btn]）');
   } else {
-    bad('模块列表的删除按钮没挂事件 —— 会点了没反应（欢迎页卡片踩过同样的坑）');
+    bad('模块列表的删除按钮没挂事件 —— 会点了没反应（首页卡片踩过同样的坑）');
   }
   if (/const closeManager = this\.modalDone/.test(uiSrc2)) {
     ok('删除前先收起管理窗口，避免单例弹窗被顶掉导致 Promise 悬空');
@@ -667,6 +759,123 @@ console.log('\n=== 8. 关窗提醒 · 设置页 · 网格 ===');
   } else {
     bad('默认导出目录没有接进导出流程');
   }
+}
+
+// ---------------- 9. 第 15 轮：用户报的界面问题 ----------------
+//
+// 这一节全是「用户当面提出来的毛病」，逐条钉住，防止以后改回去。
+console.log('\n=== 9. 第 15 轮修复项 ===');
+{
+  const canvasSrc2 = readFileSync(join(ROOT, 'src/frontend/js/canvas.js'), 'utf8');
+  const inspectorSrc = readFileSync(join(ROOT, 'src/frontend/js/inspector.js'), 'utf8');
+  const homeSrc2 = readFileSync(join(ROOT, 'src/frontend/js/home.js'), 'utf8');
+  const css2 = css;
+
+  // 1) 控件卡片不再有等级标签（用户要求全删）
+  if (!/lc-level/.test(css2) && !/lc-level/.test(uiSrc)) {
+    ok('控件卡片上的等级标签已彻底删掉（JS + CSS 都没有残留）');
+  } else {
+    bad('控件卡片还留着等级标签');
+  }
+
+  // 2) 节点卡片里不再有「代码提示行」
+  if (!/k: '生成'/.test(canvasSrc2)) ok('节点卡片里的代码提示行已删掉');
+  else bad('节点卡片还在显示代码提示行');
+
+  // 3) 名字要能完整看到（悬停气泡）
+  if (/class="lc-name" title="/.test(uiSrc) && /class="lc-code" title="/.test(uiSrc)) {
+    ok('控件名字挂了 title（悬停能看到全名）');
+  } else {
+    bad('控件名字看不到全名（没有 title 气泡）');
+  }
+
+  // 4) 连不上：必须判红 + 说明原因
+  if (/classList\.add\(ok \? 'ok' : 'bad'\)/.test(canvasSrc2)) {
+    ok('拖线时按「能不能接」给绿/红反馈');
+  } else {
+    bad('拖线没有给能不能接的颜色反馈');
+  }
+  if (/\.cv-port\.bad[\s\S]{0,200}?--err/.test(css2) && /\.cv-port\.bad:hover/.test(css2)) {
+    ok('连不上的圆圈是红的（悬停在圆点上也不会被蓝色盖掉）');
+  } else {
+    bad('连不上的圆圈会被 hover 的蓝色盖住');
+  }
+  if (/onConnectError/.test(canvasSrc2) && /showConnectError/.test(inspectorSrc)) {
+    ok('连不上时右侧面板会写明原因（不只是飘一下的提示）');
+  } else {
+    bad('连不上时没有在面板里说明原因');
+  }
+
+  // 5) 联线要精准对准圆圈：端口坐标取自真实 DOM，不再靠估高
+  if (/getBoundingClientRect\(\)/.test(canvasSrc2) && /portPos\(node, which, portId\)/.test(canvasSrc2)) {
+    ok('端口坐标读真实 DOM 位置（联线两端精准落在圆圈中心）');
+  } else {
+    bad('端口坐标还是估算的，连线会对不准圆圈');
+  }
+  if (/snapTarget/.test(canvasSrc2)) ok('拖线时吸附到目标圆圈（松手即连到这里）');
+  else bad('拖线没有吸附到圆圈');
+
+  // 6) 首次进入要有示例插件组，而且是控件画布
+  if (/maybeAddSamples/.test(uiSrc) && /scanScripts/.test(uiSrc)) {
+    ok('首次进入会扫描 exe 旁边的 scripts\\ 摆出示例插件组');
+  } else {
+    bad('没有「首次进入显示示例插件组」');
+  }
+  if (/ktsimport/.test(uiSrc) && existsSync(join(ROOT, 'src/frontend/js/ktsimport.js'))) {
+    ok('手写脚本会被翻成控件画布（不是只丢一段代码给用户看）');
+  } else {
+    bad('示例没有做成控件画布');
+  }
+  if (/builtinSamples/.test(readFileSync(join(ROOT, 'src/frontend/js/ktsimport.js'), 'utf8'))) {
+    ok('没有 scripts 目录时用内置示例兜底');
+  } else {
+    bad('缺 scripts 目录时没有兜底示例');
+  }
+
+  // 7) 自动保存间隔按秒显示（详见 smoke 的 2d）
+  if (/scale: 1000/.test(readFileSync(join(ROOT, 'src/frontend/js/settings.js'), 'utf8'))) {
+    ok('自动保存间隔：内部存毫秒、界面显示秒');
+  } else {
+    bad('自动保存间隔没有按秒显示');
+  }
+  if (/data-scale/.test(readFileSync(join(ROOT, 'src/frontend/js/settingspage.js'), 'utf8'))) {
+    ok('设置页读写时会按 scale 换算，不会把 0.4 秒存成 0.4 毫秒');
+  } else {
+    bad('设置页没有做秒/毫秒换算');
+  }
+
+  // 8) 首页新建插件组走弹窗（详见第 4 节的新断言）
+  if (/newModuleFromHome[\s\S]{0,2000}?id="nmTpl"/.test(uiSrc)) {
+    ok('新建插件组的弹窗里能选模板');
+  } else {
+    bad('新建插件组的弹窗不能选模板');
+  }
+
+  // 9) 致谢名单：按钮只有两个，且走系统浏览器
+  if (/set-thanks-btn/.test(readFileSync(join(ROOT, 'src/frontend/js/settingspage.js'), 'utf8'))
+      && /\.set-thanks-btn/.test(css2)) {
+    ok('致谢名单的按钮有样式（不是裸按钮）');
+  } else {
+    bad('致谢名单的按钮没有样式');
+  }
+  if (/open_external/.test(readFileSync(join(ROOT, 'src/backend/src/main.rs'), 'utf8'))) {
+    ok('致谢链接用系统浏览器打开（应用内不跳走）');
+  } else {
+    bad('致谢链接没有走系统浏览器');
+  }
+
+  // 10) F5 不能把界面搞跳走
+  if (/e\.key === 'F5'/.test(uiSrc) && /safeReload/.test(uiSrc)) {
+    ok('F5 被拦截，改成「先存档再安全重载」');
+  } else {
+    bad('F5 没拦，刷新会把界面打回首页');
+  }
+  if (/export function saveNow/.test(storeSrc)) ok('重载前会同步落盘（不等自动保存的定时器）');
+  else bad('重载前没有同步落盘，改动会丢');
+
+  // 「空间底下的代码」= 节点卡片里那行代码提示，确认行数上限仍然生效
+  if (/slice\(0, 6\)/.test(canvasSrc2)) ok('节点卡片仍然限制显示行数（不会撑爆卡片）');
+  else bad('节点卡片的行数上限没了');
 }
 
 console.log(fail ? `\n❌ ${fail} 项失败` : '\n✅ 全部通过');

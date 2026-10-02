@@ -261,9 +261,13 @@ try {
   for (let i = 0; i < 50; i++) {
     try {
       const ready = await ev(cdp, `(() => {
-        const b = document.getElementById('obSkip');
-        if (b) b.click();
-        return !!(window.__app && document.getElementById('toolbar'));
+        // 启动停在首页；点进画布，后面才够得着工作区
+        const home = document.getElementById('home');
+        if (home && !home.hidden) {
+          const c = document.querySelector('.hm-card');
+          if (c) c.click();
+        }
+        return !!(window.__app && document.getElementById('toolbar') && home && home.hidden);
       })()`);
       if (ready) break;
     } catch { /* 还没就绪 */ }

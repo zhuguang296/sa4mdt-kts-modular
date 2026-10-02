@@ -71,11 +71,14 @@ console.log('== 3. 生成 -> 解析 往返 ==');
   let canvasFiles = 0;
   for (const f of gen.files) {
     if (f.path.endsWith('module.kts')) {
-      ok(`${f.path} 不含任何注释`, !/^\s*\/\//m.test(f.content));
+      // 模块入口文件：只有识别标记，不允许有画布位置锚点
+      ok(`${f.path} 带识别标记`, /\/\/@kts\s+\d+\.\d+\.\d+/.test(f.content));
+      ok(`${f.path} 没有位置锚点`, !/^\/\/@(?!kts )/m.test(f.content));
       continue;
     }
     canvasFiles++;
-    const anchorCount = (f.content.match(/^\/\/@/gm) || []).length;
+    // 数位置锚点：排除识别标记行 //@kts …
+    const anchorCount = (f.content.match(/^\/\/@(?!kts )/gm) || []).length;
     const p = A.parseKts(f.content);
     ok(`${f.path} 能解析`, p.ok, p.error);
     if (!p.ok) continue;
@@ -93,6 +96,26 @@ console.log('== 3. 生成 -> 解析 往返 ==');
   // 每个文件都必须带 @file:Depends，否则游戏里加载不了
   for (const f of gen.files) {
     ok(`${f.path} 有 @file:Depends`, /@file:Depends\(/.test(f.content));
+  }
+}
+
+console.log('== 3b. 锚点参数还原（第 14 轮：非默认参数写入并解析回来）==');
+{
+  const runSrc = readFileSync(join(ROOT, 'tests/run.js'), 'utf8');
+  const bb = runSrc.slice(runSrc.indexOf('function buildProject()'), runSrc.indexOf('const proj = buildProject()'));
+  const buildProject = new Function('M', bb + '\nreturn buildProject;')(M);
+  const gen = generatePlugin(buildProject());
+
+  // 从生成文件解析回画布：带参数写进锚点的节点，props 必须原样回来
+  for (const f of gen.files) {
+    if (f.path.endsWith('module.kts')) continue;
+    const p = A.parseKts(f.content);
+    if (!p.ok) { ok(`${f.path} 参数还原前提：能解析`, false, p.error); continue; }
+    // 找到「进服欢迎」画布里的广播节点：它填了 target/text/msgType
+    const bc = p.canvas.nodes.find(n => n.def === 'action.broadcast');
+    if (!bc) { ok(`${f.path} 有广播节点`, false); continue; }
+    const t = bc.props && bc.props.text;
+    ok(`${f.path} 广播文本参数还原`, typeof t === 'string' && t.length > 0, JSON.stringify(bc.props));
   }
 }
 
@@ -188,20 +211,45 @@ console.log('== 6. 表外控件必须能往返（忘了登记 codes.js 也不能
     '还原时认不出的控件会被静默丢弃，用户不会知道');
 }
 
-console.log('== 7. 注释占比（生成物）==');
+console.log('== 7. 生成物布局（正文零注释 + 底部识别块）==');
 {
   const runSrc = readFileSync(join(ROOT, 'tests/run.js'), 'utf8');
   const bb = runSrc.slice(runSrc.indexOf('function buildProject()'), runSrc.indexOf('const proj = buildProject()'));
   const buildProject = new Function('M', bb + '\nreturn buildProject;')(M);
   const gen = generatePlugin(buildProject());
-  let total = 0, cmt = 0;
   for (const f of gen.files) {
-    total += Buffer.byteLength(f.content, 'utf8');
-    cmt += f.content.split('\n').filter(l => /^\s*\/\//.test(l))
-      .reduce((n, l) => n + Buffer.byteLength(l + '\n', 'utf8'), 0);
+    const lines = f.content.split('\n');
+    const markIdx = lines.findIndex(l => /^\/\/@kts\s+\d+\.\d+\.\d+\s*$/.test(l));
+    ok(`${f.path} 有识别标记 //@kts`, markIdx >= 0);
+    if (markIdx < 0) continue;
+
+    // 识别标记之后只能剩注释（位置锚点）或空行，不能再有代码
+    const tail = lines.slice(markIdx + 1);
+    ok(`${f.path} 识别标记在文件最底部`, tail.every(l => /^\s*\/\//.test(l) || l.trim() === ''),
+      '识别标记之后只允许注释（位置锚点）');
+
+    // 第 14 轮：标记之前固定三行说明注释（不多不少），再往前才是正文
+    const three = [lines[markIdx - 3], lines[markIdx - 2], lines[markIdx - 1]];
+    ok(`${f.path} 识别块前三行固定注释`,
+      three.join('|') === '// kts-modular 生成|// 删除后无法恢复|// 锚点（详细，可以完全恢复）',
+      three.join('|'));
+
+    // 从标记往回找：先跳过尾部空行 → 注释块 → 注释块前的两个空行 → 正文
+    const before = lines.slice(0, markIdx);
+    let i = before.length - 1;
+    while (i >= 0 && before[i].trim() === '') i--;            // 跳过标记前的空行
+    while (i >= 0 && /^\s*\/\//.test(before[i])) i--;         // 跳过注释块
+    const bodyEnd = i + 1;                                    // 正文最后一行之后
+    while (i >= 0 && before[i].trim() === '') i--;            // 跳过正文后的空行（应恰好两行）
+    const gapStart = i + 1;
+    const bodyArea = before.slice(0, bodyEnd);
+    const gap = before.slice(gapStart, bodyEnd);
+
+    ok(`${f.path} 正文区零注释`, bodyArea.every(l => !/^\s*\/\//.test(l)),
+      '正文（识别块之前）里不应有注释行');
+    ok(`${f.path} 正文后空两行`, gap.length === 2 && gap.every(l => l.trim() === ''),
+      `正文和注释区之间应为两个空行，实际 ${gap.length} 个`);
   }
-  const pct = 100 * cmt / total;
-  ok(`样例工程注释占比 ${pct.toFixed(1)}% ≤ 10%`, pct <= 10, `${cmt}B / ${total}B`);
 }
 
 console.log('');

@@ -118,6 +118,20 @@ const GOOD = {
   'util.log': { text: '调试 {player.name}' },
   'util.returnList': { name: 'joined', list: 'names', sep: ', ', field: '' },
   'util.waitSeconds': { seconds: 1 },
+
+  // 交互（第三批）
+  'interact.openMenu': {
+    menuId: 1, title: '请选择', msg: '选一个', options: '选项一\n选项二', followup: false,
+  },
+  'interact.onMenuChoose': { menuId: 1 },
+  'interact.closeMenu': { menuId: 1 },
+  'interact.openURI': { url: 'https://example.com' },
+
+  // 服务器（第三批）
+  'server.disableSelf': { reason: '配置无效' },
+  'server.loadMap': { mode: 'next' },
+  'server.teamRule': { team: 1, field: 'cheat', value: 'true' },
+  'server.registerVar': { name: 'my.plugin.value', desc: '自定义变量', preset: 'players' },
 };
 
 // 需要「上游有某类型变量」的控件：给它们配一个能提供该变量的前置链
@@ -153,6 +167,10 @@ const NEEDS = {
   'util.waitSeconds': ['suspend'],
   // 「到此为止」必须待在某个 lambda 里才有东西可跳出
   'action.returnNow': ['listen'],
+  // 交互：菜单/链接都要有玩家
+  'interact.openMenu': ['player'],
+  'interact.closeMenu': ['player'],
+  'interact.openURI': ['player'],
 };
 
 const PROVIDER = {
@@ -227,6 +245,32 @@ const VARIANTS = {
   'util.currentTime/millis': ['util.currentTime', { name: 't', kind: 'millis' }],
   'util.currentTime/realClock': ['util.currentTime', { name: 't', kind: 'realClock' }],
   'util.returnList/field': ['util.returnList', { name: 'joined', list: 'players', sep: '/', field: 'name' }],
+  // 指令冷却（body 前置检查 + 顶层记录表）
+  'action.registerCommand/cooldown': ['action.registerCommand', {
+    name: 'daily', desc: '签到', aliases: '', playerOnly: true, permission: '', cooldownSec: 30,
+  }],
+  'action.registerCommand/cooldownNoPlayer': ['action.registerCommand', {
+    name: 'serverop', desc: '管理员用', aliases: '', playerOnly: false, permission: 'x.y', cooldownSec: 5,
+  }],
+  // 交互 / 服务器（第三批）
+  'interact.openMenu/followup': ['interact.openMenu', {
+    menuId: 7, title: '菜单', msg: '', options: 'A\nB\nC', followup: true,
+  }],
+  'interact.openMenu/single': ['interact.openMenu', {
+    menuId: 0, title: '只有一个', msg: '说明', options: '确定', followup: false,
+  }],
+  'server.loadMap/byId': ['server.loadMap', { mode: 'id', mapId: 3 }],
+  'server.teamRule/float': ['server.teamRule', { team: 2, field: 'unitHealthMultiplier', value: '2.5' }],
+  'server.teamRule/int': ['server.teamRule', { team: 1, field: 'rtsMaxSquad', value: '10' }],
+  'server.teamRule/false': ['server.teamRule', { team: 3, field: 'cheat', value: 'false' }],
+  'server.registerVar/wave': ['server.registerVar', { name: 'p.wave', desc: '波数', preset: 'wave' }],
+  'server.registerVar/tps': ['server.registerVar', { name: 'p.tps', desc: 'TPS', preset: 'tps' }],
+  'server.registerVar/mapName': ['server.registerVar', { name: 'p.map', desc: '地图', preset: 'mapName' }],
+  'server.registerVar/heap': ['server.registerVar', { name: 'p.heap', desc: '内存', preset: 'heap' }],
+  'server.registerVar/enemies': ['server.registerVar', { name: 'p.enemies', desc: '敌人', preset: 'enemies' }],
+  'server.registerVar/custom': ['server.registerVar', {
+    name: 'p.mine', desc: '自定', preset: 'custom', expr: 'Groups.unit.size()',
+  }],
 };
 
 /** 变体名 -> 它需要的上游变量 */
@@ -258,6 +302,16 @@ const VARIANT_NEEDS = {
   'query.countUnits/all': ['player'],
   'query.countUnits/flying': ['unit'],
   'util.returnList/field': ['players'],
+  // 交互：菜单/链接都要有玩家
+  'interact.openMenu/followup': ['player'],
+  'interact.openMenu/single': ['player'],
+  // 注册显示变量自带根起点，不需要上游
+  'server.registerVar/wave': [],
+  'server.registerVar/tps': [],
+  'server.registerVar/mapName': [],
+  'server.registerVar/heap': [],
+  'server.registerVar/enemies': [],
+  'server.registerVar/custom': [],
 };
 
 // ---------------- 构造并运行 ----------------

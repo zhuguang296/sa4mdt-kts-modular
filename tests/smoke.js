@@ -568,28 +568,28 @@ const A = await import(u(join(ROOT, 'src/frontend/js/anchor.js')));
   // 默认：什么都没存 → 全折叠
   S.loadUiPrefs();
   check(S.ui.openGroups.length === 0, '没存过偏好时不是默认全折叠');
-  check(S.isGroupOpen('basic:event') === false, '默认状态下分类竟然是展开的');
+  check(S.isGroupOpen('event') === false, '默认状态下分类竟然是展开的');
 
   // 能展开、能收起
-  const opened = S.toggleGroup('basic:event');
+  const opened = S.toggleGroup('event');
   check(opened === true, 'toggleGroup 展开时没返回 true');
-  check(S.isGroupOpen('basic:event') === true, '展开后 isGroupOpen 仍是 false');
-  const closed = S.toggleGroup('basic:event');
+  check(S.isGroupOpen('event') === true, '展开后 isGroupOpen 仍是 false');
+  const closed = S.toggleGroup('event');
   check(closed === false, 'toggleGroup 收起时没返回 false');
-  check(S.isGroupOpen('basic:event') === false, '收起后 isGroupOpen 仍是 true');
+  check(S.isGroupOpen('event') === false, '收起后 isGroupOpen 仍是 true');
 
   // 关键：展开状态**不该**被写进 localStorage
-  S.toggleGroup('basic:event');
+  S.toggleGroup('event');
   check(!mem.has('kts-builder.ui.v1'),
     '展开状态被写进 localStorage 了 —— 重启后会残留，用户看到的就是「默认全展开」');
 
   // 模拟重启：内存态清空 + 重新 loadUiPrefs，必须回到全折叠
   S.loadUiPrefs();
   check(S.ui.openGroups.length === 0, '重启后没有回到全折叠状态');
-  check(S.isGroupOpen('basic:event') === false, '重启后上次展开的分类还开着');
+  check(S.isGroupOpen('event') === false, '重启后上次展开的分类还开着');
 
   // 就算 localStorage 里躺着旧版本留下的数据，也不能被读进来
-  mem.set('kts-builder.ui.v1', JSON.stringify({ openGroups: ['basic:event', 'advanced:action'] }));
+  mem.set('kts-builder.ui.v1', JSON.stringify({ openGroups: ['event', 'action'] }));
   S.ui.openGroups = [];
   S.loadUiPrefs();
   check(S.ui.openGroups.length === 0,
@@ -605,9 +605,167 @@ const A = await import(u(join(ROOT, 'src/frontend/js/anchor.js')));
   if (allOk) ok('控件库折叠状态：默认全折叠 / 可开关 / 不持久化（重启必回到折叠）/ 旧数据不干扰');
 }
 
+// ---------------- 2b. 「未保存」判定只看内容，不看当前站在哪个画布 ----------------
+//
+// 真实踩过的坑：首页是后加的，从首页点进某个插件组会切 activeCanvas，
+// 而 isDirty() 拿整个工程序列化结果做比对 —— 于是「一个字没改」也被判成
+// 有改动，状态栏亮起「未保存」，关窗还会拦一道。切标签页同理。
+console.log('\n=== 2b. 未保存判定（切画布不算改动）===');
+{
+  const S = await import(u(join(ROOT, 'src/frontend/js/store.js')));
+  const MOD = await import(u(join(ROOT, 'src/frontend/js/model.js')));
+  const check = (cond, msg) => { if (cond) ok(msg); else bad(msg); };
+
+  S.store.project = MOD.newProject();
+  const p = S.store.project;
+  // 造两个画布，方便切换
+  if (p.modules[0].canvases.length < 2) {
+    p.modules[0].canvases.push(MOD.newCanvas('第二张', 'second'));
+  }
+  S.markSaved();
+
+  check(!S.isDirty(), '刚 markSaved 就是干净状态');
+
+  // 切到另一个画布：属于「看哪里」，不是「改了什么」
+  const other = p.modules[0].canvases[1];
+  S.setActiveCanvas(other.id);
+  check(!S.isDirty(), '切换画布不算改动（切标签页 / 从首页进插件组不会误报「未保存」）');
+
+  // 切回来也不能算改动
+  S.setActiveCanvas(p.modules[0].canvases[0].id);
+  check(!S.isDirty(), '切回原画布也仍然是干净状态');
+
+  // 真正的改动必须能认出来
+  S.activeCanvas().nodes.push({ id: 'n1', def: 'event.PlayerJoin', x: 0, y: 0, props: {}, ports: {} });
+  check(S.isDirty(), '真的加了控件会被认成「有改动」');
+
+  // 存盘后回到干净
+  S.markSaved();
+  check(!S.isDirty(), 'markSaved 之后回到干净状态');
+
+  // 改内容 -> 存盘 -> 再改回原值：和上次存盘确实又不一样了，应当报「有改动」
+  S.activeCanvas().nodes[0].x = 999;
+  S.markSaved();
+  S.activeCanvas().nodes[0].x = 0;
+  check(S.isDirty(), '存盘后又改动会被认成「有改动」');
+
+  // 而「什么都没动」必须永远是干净的（这才是快照比对的意义）
+  S.markSaved();
+  check(!S.isDirty(), '同一个状态连续 markSaved 两次结果一致');
+}
+
+// ---------------- 2c. 手写脚本 → 控件画布（第 15 轮的示例插件组）----------------
+//
+// 首次进入要把 scripts\ 里的真实插件摆成**控件画布**给用户看。脚本大多没有
+// 本工具的锚点，靠 ktsimport.js 的结构识别翻过来。识别器必须保守：宁可少认，
+// 不能乱认（否则用户学到的是错的）。
+console.log('\n=== 2c. 手写脚本识别成控件画布 ===');
+{
+  const KI = await import(u(join(ROOT, 'src/frontend/js/ktsimport.js')));
+  const check = (cond, msg) => { if (cond) ok(msg); else bad(msg); };
+
+  // 一段典型的手写 SA4MDT 脚本（不是本工具生成的）
+  const src = `
+@file:JsModule("mindustry")
+package myPlugin
+
+import coreMindustry.*
+
+listen<EventType.PlayerJoin> {
+  broadcast("[green]欢迎 ${'$'}{player.name} 来到服务器")
+}
+
+listen<EventType.BlockBuildEndEvent> {
+  if (tile.block() == Blocks.coreNucleus) {
+    Call.announce("核心被打啦")
+  }
+}
+
+listen(EventType.Trigger.update) {
+  Groups.player.forEach { p ->
+    if (p.admin) {
+      p.sendMessage("你是管理员")
+    }
+  }
+}
+`;
+  const r = KI.ktsSourceToCanvas(src, 'demo.kts');
+  const c = r.canvas;
+  check(Array.isArray(c.nodes) && c.nodes.length > 0, '手写脚本能翻出控件（不是空画布）');
+  const keys = c.nodes.map(n => n.def);
+  check(keys.includes('event.PlayerJoin'), '认出了「玩家加入」事件');
+  check(keys.includes('event.BlockBuildEndEvent'), '认出了「方块被建造」事件');
+  check(keys.includes('event.Trigger.update'), '认出了「每帧更新」事件');
+  check(keys.includes('condition.if'), '认出了 if 条件');
+  check(keys.includes('action.broadcast') || keys.includes('action.announceBig'),
+    '认出广播/公告这类动作');
+  check(keys.includes('loop.forEachPlayer'), '认出了遍历玩家');
+  // 层级：条件/动作应当挂在某个事件下面（有连线），而不是全平铺
+  check(c.edges.length > 0, '识别结果带连线（能看出「谁包含谁」）');
+  // 每个 key 都必须是真实存在的控件，否则画布上会渲染出空白卡片
+  const badKeys = keys.filter(k => !CAT.defOf(k));
+  check(badKeys.length === 0, '认出来的都是真实控件' + (badKeys.length ? '（坏的：' + badKeys.join(',') + '）' : ''));
+  check(/自动解析/.test(c.title), '画布标题标了「自动解析」，用户知道这是机器翻的');
+
+  // 完全看不懂的脚本也不能崩，至少给一个空壳
+  const junk = KI.ktsSourceToCanvas('// 只有注释\n', 'junk.kts');
+  check(junk.canvas.nodes.length >= 1, '看不懂的脚本也给一个能改的空壳画布');
+
+  // 挑选示例：优先「事件多」的、跳过空文件、去重
+  // （阈值是 40 字符：真实脚本都远超，太短的过滤掉免得当示例误导人）
+  const tinyScript = 'listen<EventType.PlayerLeave> {\n  broadcast("再见")\n  // 一段足够长的真实感脚本\n}\n';
+  const picked = KI.pickSamples([
+    { name: 'a.kts', path: 'a', size: 10, text: src },
+    { name: 'a.kts', path: 'a2', size: 10, text: src },
+    { name: 'tiny.kts', path: 't', size: 1, text: 'x' },
+    { name: 'b.kts', path: 'b', size: 20, text: tinyScript },
+  ], 10);
+  check(picked.length === 2, '挑选示例时去掉重复名和空文件（4 份里留下 2 份）');
+  check(picked[0].name === 'a.kts', '事件多的排在前面');
+
+  // 内置兜底示例：用户要求「可以选取 10-12 个事例」，没有 scripts 目录时也得凑够
+  const builtin = KI.builtinSamples(12);
+  check(builtin.length === 12, `内置兜底示例有 12 个（用户要求 10~12 个）`);
+  const builtinBad = builtin.filter((s) => !s.canvas.nodes.length
+    || s.canvas.nodes.some((n) => !CAT.defOf(n.def)));
+  check(builtinBad.length === 0,
+    '内置兜底示例全是有效控件画布' + (builtinBad.length ? '（坏的：' + builtinBad.map(s => s.name).join(',') + '）' : ''));
+  check(builtin.every((s) => s.canvas.title && s.canvas.title !== '自动解析的画布'),
+    '内置示例的画布标题是脚本名（不是「自动解析的画布」这种敷衍标题）');
+}
+
+// ---------------- 2d. 自动保存间隔按「秒」显示（第 15 轮）----------------
+console.log('\n=== 2d. 自动保存间隔单位是秒 ===');
+{
+  const SET = await import(u(join(ROOT, 'src/frontend/js/settings.js')));
+  const check = (cond, msg) => { if (cond) ok(msg); else bad(msg); };
+  const item = SET.SECTIONS.flatMap(s => s.items).find(i => i.key === 'autosaveMs');
+  check(!!item, '设置里有「自动保存间隔」这一项');
+  check(item && item.unit === 's', '界面单位显示成 s（不是 ms）');
+  check(item && item.scale === 1000, '内部仍按毫秒存（scale=1000），存档格式没变');
+  // info 项不能混进用户设置（否则会被写进 localStorage）
+  check(SET.isInfo({ type: 'thanks' }) && SET.isInfo({ type: 'info' }), '只读项不参与存盘');
+}
+
+// ---------------- 2e. 致谢名单（第 15 轮必须有的内容）----------------
+console.log('\n=== 2e. 致谢名单 ===');
+{
+  const SET = await import(u(join(ROOT, 'src/frontend/js/settings.js')));
+  const check = (cond, msg) => { if (cond) ok(msg); else bad(msg); };
+  const th = SET.SECTIONS.flatMap(s => s.items).find(i => i.type === 'thanks');
+  check(!!th, '设置里有致谢名单');
+  check(th && th.credit.includes('EOCC'), '写明了 EOCC 共创社区提供模型协作');
+  const labels = (th && th.links || []).map(l => l.label);
+  check(labels.length === 2, '只有两个按钮');
+  check(labels[0] === '跳转' && labels[1] === '快捷注册', '按钮文字就是「跳转」和「快捷注册」');
+  const urls = (th && th.links || []).map(l => l.url);
+  check(urls.includes('https://ai.www.eocc.top'), '有 ai.www.eocc.top 链接');
+  check(urls.includes('https://ai.www.eocc.top/register?aff=kSPR'), '有带邀请码的快捷注册链接');
+}
+
 // ---------------- 3. 主题亮度 ----------------
 //
-// 界面结构、样式完整性、欢迎页/折叠等回归都在 tests/ui-structure.js 里，
+// 界面结构、样式完整性、首页/折叠等回归都在 tests/ui-structure.js 里，
 // 这里只保留一条「底色确实是浅色」的数值断言（那边用的是色值黑名单）。
 const css = readFileSync(join(ROOT, 'src/frontend/css/app.css'), 'utf8');
 console.log('\n=== 3. 主题亮度 ===');

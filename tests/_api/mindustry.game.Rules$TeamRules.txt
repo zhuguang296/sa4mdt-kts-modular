@@ -1,0 +1,8 @@
+Compiled from "Rules.java"
+public class mindustry.game.Rules$TeamRules implements arc.util.serialization.Json$JsonSerializable {
+  final mindustry.game.Rules$TeamRule[] values;
+  public mindustry.game.Rules$TeamRules();
+  public mindustry.game.Rules$TeamRule get(mindustry.game.Team);
+  public void write(arc.util.serialization.Json);
+  public void read(arc.util.serialization.Json, arc.util.serialization.JsonValue);
+}

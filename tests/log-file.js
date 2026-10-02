@@ -86,9 +86,13 @@ async function waitBoot(cdp, tries = 50) {
   for (let i = 0; i < tries; i++) {
     try {
       const ready = await evaluate(cdp, `(() => {
-        const skip = document.getElementById('obSkip');
-        if (skip) skip.click();            // 关掉欢迎页
-        return !!(window.__app && document.getElementById('toolbar'));
+        // 启动停在首页；点进画布，后续步骤才够得着画布/状态栏
+        const home = document.getElementById('home');
+        if (home && !home.hidden) {
+          const c = document.querySelector('.hm-card');
+          if (c) c.click();
+        }
+        return !!(window.__app && document.getElementById('toolbar') && home && home.hidden);
       })()`);
       if (ready) { await new Promise((r) => setTimeout(r, 400)); return true; }
     } catch { /* 还没就绪 */ }

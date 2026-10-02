@@ -27,7 +27,7 @@ const bad = (m) => { console.log('  ❌ ' + m); fail++; };
 // 这里还把 exe **复制到临时目录再运行**：因为「崩溃日志」是写在 exe 旁边的
 // crash.log，直接在项目根跑测试会往仓库里丢一个 crash.log（测试还会故意
 // 写一条进去）。复制到临时目录跑，日志落在临时目录，收尾时一起删掉。
-import { copyFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
 const workDir = mkdtempSync(join(tmpdir(), 'kts-builder-livetest-'));
@@ -101,20 +101,20 @@ async function evaluate(cdp, expr) {
  * 机器空闲时 1500ms 够；构建到这一步时后台还有 cargo / 上一步的测试在跑，
  * 启动会明显变慢 —— 测试抢在 App 建好之前就去 querySelector，拿到 null，
  * 报出「Cannot read properties of null」这种**假失败**（工具没问题，
- * 是测试等得不够）。所以轮询真实标志：App 挂上了、欢迎页画出来了。
+ * 是测试等得不够）。所以轮询真实标志：App 挂上了、首页画出来了。
  */
 async function waitBoot(cdp, tries = 50) {
   for (let i = 0; i < tries; i++) {
     try {
       const ready = await evaluate(cdp, `(() => {
-        const m = document.getElementById('modal');
-        return !!(window.__app && m && !m.hidden && document.querySelector('.ob-card'));
+        const h = document.getElementById('home');
+        return !!(window.__app && h && !h.hidden && document.querySelector('.hm-card, .hm-newbtn'));
       })()`);
       if (ready) return true;
     } catch { /* 页面还没就绪，继续等 */ }
     await new Promise((r) => setTimeout(r, 300));
   }
-  throw new Error('启动后 15 秒内界面仍未就绪（欢迎页没出现）');
+  throw new Error('启动后 15 秒内界面仍未就绪（首页没出现）');
 }
 
 // ---------- 主流程 ----------
@@ -128,65 +128,359 @@ try {
   //
   // 原来是死等 1500ms。机器空闲时够，但构建到这一步时后台还有别的活儿，
   // 启动会明显变慢，于是后面 querySelector 拿到 null 报假失败。
-  // 改成轮询真实就绪标志：__app 挂上了、欢迎页画出来了。
+  // 改成轮询真实就绪标志：__app 挂上了、首页画出来了。
   await waitBoot(cdp);
 
-  // ---- 1. 启动即欢迎页，且三个入口真的能点 ----
-  console.log('=== 1. 欢迎页 ===');
+  // ---- 1. 启动即首页，四个入口 + 插件组列表 ----
+  console.log('=== 1. 首页 ===');
   {
     const info = await evaluate(cdp, `(() => {
-      const m = document.getElementById('modal');
-      const cards = [...document.querySelectorAll('.ob-card')];
+      const h = document.getElementById('home');
+      const app = document.getElementById('app');
+      const cards = [...document.querySelectorAll('.hm-card')];
       return {
-        modalVisible: m && !m.hidden,
+        homeVisible: h && !h.hidden,
+        appHidden: app && app.hidden,
         cardCount: cards.length,
-        labels: cards.map(c => c.querySelector('.ob-t') && c.querySelector('.ob-t').textContent),
-        skip: !!document.getElementById('obSkip'),
-        hero: !!document.querySelector('.ob-hero'),
+        names: cards.map(c => (c.querySelector('.hm-card-name') || {}).textContent),
+        acts: [...document.querySelectorAll('[data-hact]')].map(b => b.dataset.hact),
+        newBtn: !!document.getElementById('hmNewBtn'),
+        curBadge: !!document.querySelector('.hm-cur'),
         // 真窗口尺寸下卡片是否可见（不是 0 高度）
         boxes: cards.map(c => { const r = c.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; }),
       };
     })()`);
-    if (!info.modalVisible) bad('启动后没有显示欢迎页');
-    else ok('启动先显示欢迎页');
-    if (info.cardCount !== 3) bad(`欢迎页入口应 3 个，实际 ${info.cardCount}`);
-    else ok(`3 个入口：${info.labels.join(' / ')}`);
-    if (!info.skip) bad('缺「以后再说」');
-    else ok('有「以后再说」退出');
+    if (!info.homeVisible) bad('启动后没有显示首页');
+    else ok('启动先显示首页');
+    if (info.appHidden) ok('首页是整窗替换工作区（#app 已隐藏）');
+    else bad('首页出现时工作区还露着（应整窗替换）');
+    if (!info.cardCount) bad('首页没列出任何插件组');
+    else ok(`列出 ${info.cardCount} 个插件组：${info.names.join(' / ')}`);
+    if (!info.newBtn) bad('首页缺「新建插件组」');
+    else ok('首页有「新建插件组」');
+    for (const a of ['open', 'import', 'newProject', 'settings']) {
+      if (!info.acts.includes(a)) bad(`首页缺「${a}」入口`);
+    }
+    ok(`首页入口：${info.acts.join(' / ')}`);
     const zero = info.boxes.filter(([w, h]) => w < 40 || h < 20);
-    if (zero.length) bad(`有 ${zero.length} 个卡片尺寸异常：${JSON.stringify(zero)}`);
-    else ok(`3 个卡片都渲染出实际尺寸：${info.boxes.map(b => b.join('x')).join(', ')}`);
+    if (zero.length) bad(`有 ${zero.length} 个插件组卡片尺寸异常：${JSON.stringify(zero)}`);
+    else ok(`${info.cardCount} 个卡片都渲染出实际尺寸：${info.boxes.map(b => b.join('x')).join(', ')}`);
   }
 
-  // ---- 2. 点「新建工程」应能真的走通 ----
-  console.log('\n=== 2. 点「新建工程」 ===');
+  // ---- 2. 新建插件组：弹窗建完留在首页，列表里立刻出现 ----
+  //      （第 15 轮：改成弹窗了 —— 填名字 + 选模板，不再是首页上的就地输入行）
+  console.log('\n=== 2. 新建插件组 ===');
   {
     const r = await evaluate(cdp, `(async () => {
-      const card = document.querySelector('.ob-card[data-ob="new"]');
-      if (!card) return { err: '找不到新建工程卡片' };
-      card.click();
+      const before = document.querySelectorAll('.hm-card').length;
+      document.getElementById('hmNewBtn').click();
+      await new Promise(r => setTimeout(r, 250));
+      // 必须是弹窗（#modal 里有输入框），而不是首页上插进来的输入行
+      const modal = document.getElementById('modal');
+      if (modal.hidden) return { err: '点了「新建插件组」没有弹出对话框' };
+      const inp = modal.querySelector('#nmName');
+      if (!inp) return { err: '弹窗里没有名字输入框' };
+      const tpl = modal.querySelector('#nmTpl');
+      if (!tpl) return { err: '弹窗里没有模板选择' };
+      inp.value = 'liveTestGroup';
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+      const okBtn = [...modal.querySelectorAll('[data-btn]')].find(b => b.textContent.trim() === '创建');
+      if (!okBtn) return { err: '弹窗里没有「创建」按钮' };
+      okBtn.click();
       await new Promise(r => setTimeout(r, 400));
-      const m = document.getElementById('modal');
-      const title = m.querySelector('.modal-title');
+      const cards = [...document.querySelectorAll('.hm-card')];
       return {
-        modalVisible: !m.hidden,
-        title: title ? title.textContent : null,
-        inputs: [...m.querySelectorAll('input')].map(i => i.id),
+        before, after: cards.length,
+        modalClosed: document.getElementById('modal').hidden,
+        names: cards.map(c => (c.querySelector('.hm-card-name') || {}).textContent),
+        homeStillVisible: !document.getElementById('home').hidden,
+        appHidden: document.getElementById('app').hidden,
       };
     })()`);
     if (r.err) bad(r.err);
-    else if (!r.modalVisible) bad('点「新建工程」没有弹出对话框（卡片没接事件？）');
-    else if (!/新建工程/.test(r.title || '')) bad(`弹出的是别的框：${r.title}`);
-    else ok(`点「新建工程」弹出了「${r.title}」，含 ${r.inputs.length} 个输入框`);
+    else if (r.after !== r.before + 1) bad(`插件组数没加一（${r.before} -> ${r.after}）`);
+    // 插件组名会被规范化成合法包名（小写），所以用大小写不敏感比对
+    else if (!r.names.some((n) => String(n).toLowerCase() === 'livetestgroup')) {
+      bad(`列表里没有新建的插件组：${r.names.join(',')}`);
+    } else ok(`新建后列表从 ${r.before} 变成 ${r.after} 个，含 liveTestGroup`);
+    if (!r.err && !r.modalClosed) bad('点「创建」之后弹窗没关上');
+    else if (!r.err) ok('建完弹窗自动关闭');
+    if (!r.err && !r.homeStillVisible) bad('新建插件组后跳走了（应该留在首页）');
+    else if (!r.err) ok('新建后仍留在首页');
   }
 
-  // ---- 3. 关掉之后进主界面，检查浅色主题 ----
-  console.log('\n=== 3. 主界面配色 ===');
+  // ---- 2b. 首次进入：exe 旁边的 scripts\ 变成示例插件组（第 15 轮）----
+  console.log('\n=== 2b. 首次进入的示例插件组 ===');
   {
-    // Esc 关掉弹窗（顺便验证 Esc 不会把 await 卡死）
-    await evaluate(cdp, `document.getElementById('modal').hidden = true`);
-    await evaluate(cdp, `(() => { const a = window.__app; if (a) a.closeModal(); })()`);
-    await new Promise((r) => setTimeout(r, 300));
+    // 在临时 exe 旁边造一个 scripts 目录：两个能认出来的手写脚本
+    const scriptsDir = join(workDir, 'scripts');
+    mkdirSync(scriptsDir, { recursive: true });
+    writeFileSync(join(scriptsDir, 'greet.kts'), [
+      '@file:JsModule("mindustry")',
+      'package helloWorld',
+      '',
+      'listen<EventType.PlayerJoin> {',
+      '  broadcast("[green]欢迎 ${player.name}")',
+      '}',
+      '',
+      'listen(EventType.Trigger.update) {',
+      '  Groups.player.forEach { p ->',
+      '    p.sendMessage("tick")',
+      '  }',
+      '}',
+    ].join('\n'), 'utf8');
+    writeFileSync(join(scriptsDir, 'build.kts'), [
+      'package guard',
+      '',
+      'listen<EventType.BlockBuildEndEvent> {',
+      '  if (tile.block() == Blocks.coreNucleus) {',
+      '    Call.announce("核心被打啦")',
+      '  }',
+      '}',
+    ].join('\n'), 'utf8');
+
+    const r = await evaluate(cdp, `(async () => {
+      const a = window.__app;
+      a.closeModal();
+      // 造出「真正第一次进来」的样子：存档和「摆过示例」标记都清掉
+      localStorage.clear();
+      a.start();
+      await new Promise(r => setTimeout(r, 2500));   // 扫描 + 读文件 + 建画布是异步的
+
+      const cards = [...document.querySelectorAll('.hm-card')];
+      const names = cards.map(c => (c.querySelector('.hm-card-name') || {}).textContent || '');
+      const sample = names.find(n => /example|scipts/i.test(n));
+      // 打开示例插件组，看里面是不是控件画布
+      let canvasInfo = null;
+      if (sample) {
+        const card = cards.find(c => ((c.querySelector('.hm-card-name') || {}).textContent || '') === sample);
+        card.click();
+        await new Promise(r => setTimeout(r, 500));
+        canvasInfo = {
+          nodes: document.querySelectorAll('.cv-node').length,
+          edges: document.querySelectorAll('.cv-edge').length,
+          titles: [...document.querySelectorAll('.tab-title, .tab')].map(t => t.textContent.trim()),
+        };
+      }
+      return { names, sample, canvasInfo };
+    })()`);
+
+    if (!r.sample) bad(`首次进入没有出现示例插件组（现有：${(r.names || []).join(',')}）`);
+    else ok(`首次进入出现了示例插件组「${r.sample}」`);
+    if (r.canvasInfo && r.canvasInfo.nodes > 0) {
+      ok(`示例插件组里是控件画布（${r.canvasInfo.nodes} 个控件、${r.canvasInfo.edges} 条连线）`);
+    } else if (r.sample) {
+      bad('示例插件组里没有控件（用户要求必须是控件画布）');
+    }
+  }
+
+  // ---- 2c. 联线：对准圆圈 + 连不上要判红并说明原因（第 15 轮）----
+  console.log('\n=== 2c. 联线的吸附与失败提示 ===');
+  {
+    const r = await evaluate(cdp, `(async () => {
+      const a = window.__app;
+      const cv = a.canvasView;
+      const st = await import('./js/store.js');
+      // 造一个确定的两节点场景：一个事件、一个动作，方便精确取圆点
+      const cur = st.activeCanvas();
+      cur.nodes = [];
+      cur.edges = [];
+      const ev = st.addNode('event.PlayerJoin', 120, 120, {});
+      const act = st.addNode('action.broadcast', 560, 160, {});
+      cv.render();
+      await new Promise(r => setTimeout(r, 260));
+
+      const outEl = document.querySelector('.cv-node[data-id="' + ev.id + '"] .cv-port-out');
+      const inEl = document.querySelector('.cv-node[data-id="' + act.id + '"] .cv-port-in');
+      if (!outEl || !inEl) return { err: '画布上找不到出/入口圆点' };
+      const or = outEl.getBoundingClientRect();
+      const ir = inEl.getBoundingClientRect();
+      const from = { x: or.left + or.width / 2, y: or.top + or.height / 2 };
+      const to = { x: ir.left + ir.width / 2, y: ir.top + ir.height / 2 };
+
+      // 1) 出口按下开始拉线，移到入口附近（故意偏 8px，看是否吸附）
+      outEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: from.x, clientY: from.y, button: 0 }));
+      document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: to.x + 8, clientY: to.y + 6 }));
+      await new Promise(r => setTimeout(r, 60));
+      // 注意：必须**重新查一次**元素 —— store 的事件会让界面整体重绘，
+      // 之前拿到的 DOM 引用可能已经脱离文档（那样查 class 永远是旧的）。
+      const inNow = document.querySelector('.cv-node[data-id="' + act.id + '"] .cv-port-in');
+      const greenNow = !!inNow && inNow.classList.contains('ok');
+      const tempD = (document.querySelector('.cv-temp-edge') || {}).getAttribute
+        ? document.querySelector('.cv-temp-edge').getAttribute('d') : '';
+      const tempEl = document.querySelector('.cv-temp-edge');
+      const tempShown = !!tempEl && tempEl.style.display !== 'none';
+      // 临时线的路径里绝不能出现 NaN —— 一旦出现，SVG 整条不画，
+      // 用户看到的就是「快连上时连线突然不见了」（第 17 轮修的真 bug）。
+      const tempNaN = /NaN|undefined/.test(String(tempD));
+      // 吸附生效时，临时线末端应当就落在入口圆心（像素级）
+      let snapErr = null;
+      if (tempD && !tempNaN) {
+        const nums = String(tempD).match(/-?[0-9]+(\\.[0-9]+)?/g).map(Number);
+        const vr = document.querySelector('.cv-viewport').getBoundingClientRect();
+        const ex = nums[nums.length - 2] + vr.left, ey = nums[nums.length - 1] + vr.top;
+        snapErr = Math.round(Math.hypot(ex - to.x, ey - to.y));
+      }
+
+      // 松手：应当连上
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: to.x + 8, clientY: to.y + 6 }));
+      await new Promise(r => setTimeout(r, 160));
+      const edgesAfter = st.activeCanvas().edges.length;
+      // 连线的两个端点应当就落在两个圆圈中心（像素级）
+      let edgeErr = null;
+      const edgePath = document.querySelector('.cv-edge');
+      if (edgePath && edgePath.getAttribute('d')) {
+        const nums = edgePath.getAttribute('d').match(/-?[0-9]+(\\.[0-9]+)?/g).map(Number);
+        const vr = document.querySelector('.cv-viewport').getBoundingClientRect();
+        // path 坐标是视口内的相对坐标，换算回屏幕坐标再和圆心比
+        const sx = nums[0] + vr.left, sy = nums[1] + vr.top;
+        const ex = nums[nums.length - 2] + vr.left, ey = nums[nums.length - 1] + vr.top;
+        edgeErr = {
+          dStart: Math.round(Math.hypot(sx - from.x, sy - from.y)),
+          dEnd: Math.round(Math.hypot(ex - to.x, ey - to.y)),
+        };
+      }
+
+      // 2) 非法连接：从动作节点自己的出口拖到自己的入口（自连）应判红 + 说明原因。
+      //    注意不能拿事件节点试 —— 事件根本没有入口圆点（第 15 轮修正：
+      //    圆点按控件定义画，画不出来就认不出来）。
+      const evIn = document.querySelector('.cv-node[data-id="' + ev.id + '"] .cv-port-in');
+      const actIn2 = document.querySelector('.cv-node[data-id="' + act.id + '"] .cv-port-in');
+      const actOut2 = document.querySelector('.cv-node[data-id="' + act.id + '"] .cv-port-out');
+      const noEventIn = !evIn;   // 事件节点不该有入口
+      const ir2 = actIn2.getBoundingClientRect();
+      const p2 = { x: ir2.left + ir2.width / 2, y: ir2.top + ir2.height / 2 };
+      const or2 = actOut2.getBoundingClientRect();
+      actOut2.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: or2.left + or2.width / 2, clientY: or2.top + or2.height / 2, button: 0 }));
+      document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: p2.x, clientY: p2.y }));
+      await new Promise(r => setTimeout(r, 80));
+      const badRed = document.querySelector('.cv-port.bad') !== null;
+      const inspErr = (document.querySelector('.insp-connerr') || {}).textContent || '';
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: p2.x, clientY: p2.y }));
+      await new Promise(r => setTimeout(r, 120));
+      const edgesFinal = st.activeCanvas().edges.length;
+
+      return { greenNow, edgesAfter, badRed, inspErr, edgesFinal, edgeErr, noEventIn,
+        tempShown, tempNaN, snapErr, tempD: String(tempD).slice(0, 70) };
+    })()`);
+    if (r.err) bad(r.err);
+    else {
+      if (r.greenNow) ok('拖到能接的圆圈上时，圆圈变绿（吸附提示）');
+      else bad('拖到能接的圆圈上没有变绿');
+      if (r.edgesAfter === 1) ok('在圆圈附近松手就连上了（不用像素级对准）');
+      else bad(`在圆圈附近松手没连上（连线数 ${r.edgesAfter}）`);
+      if (r.tempShown && !r.tempNaN) ok('拖线全程临时连线都在（吸附时不会消失）');
+      else bad(`拖线时临时连线没了：显示=${r.tempShown} 路径=${r.tempD}`);
+      if (r.snapErr !== null && r.snapErr <= 6) ok(`临时线末端吸附到入口圆心（偏差 ${r.snapErr}px）`);
+      else if (r.snapErr !== null) bad(`临时线没有吸附到圆心（偏差 ${r.snapErr}px）`);
+      if (r.badRed) ok('接不上的圆圈标红');
+      else bad('接不上的圆圈没有标红（用户报过：只显示蓝色、没有提醒）');
+      if (r.noEventIn) ok('没有入口的控件（事件）不再画入口圆点 —— 画得出来就一定连得上');
+      else bad('事件节点还画着入口圆点（那个圆点连不上，正是用户报的「拖过去没反应」）');
+      if (r.inspErr && r.inspErr.trim()) ok(`右侧面板说明了连不上的原因：「${r.inspErr.trim().slice(0, 40)}」`);
+      else bad('连不上时右侧面板没有说明原因');
+      if (r.edgesFinal === r.edgesAfter) ok('非法的连线没有被写进工程（判红之后松手不会硬连）');
+      else bad('非法的连线被连上了');
+      if (r.edgeErr) {
+        // 圆圈半径 6.5px：端点离圆心在几像素内就算「对准了圆圈」
+        if (r.edgeErr.dStart <= 8 && r.edgeErr.dEnd <= 8) {
+          ok(`连线两端精准落在圆圈中心（起点偏差 ${r.edgeErr.dStart}px、终点偏差 ${r.edgeErr.dEnd}px）`);
+        } else {
+          bad(`连线没对准圆圈：起点偏 ${r.edgeErr.dStart}px、终点偏 ${r.edgeErr.dEnd}px`);
+        }
+      }
+    }
+  }
+
+  // ---- 2d. 右栏插件文件管理器 + 点控件弹窗（第 16 轮用户要求）----
+  console.log('\n=== 2d. 插件文件管理器与参数弹窗 ===');
+  {
+    const r = await evaluate(cdp, `(async () => {
+      const a = window.__app;
+      const st = await import('./js/store.js');
+      const mod = st.activeRef().module;
+      const fm = document.getElementById('filemgr');
+      const out = {};
+      out.fmVisible = !!fm && fm.getBoundingClientRect().width > 100;
+      out.items = fm ? fm.querySelectorAll('.fm-item').length : 0;
+      out.canvases = mod.canvases.length;
+      out.namesOk = [...(fm ? fm.querySelectorAll('.fm-fname') : [])]
+        .every(el => /\\.kts$/.test(el.textContent.trim()));
+
+      // 单击控件 → 只选中，**不该**弹窗（第 17 轮：改成双击才弹）
+      const cur = st.activeCanvas();
+      cur.nodes = []; cur.edges = [];
+      const n = st.addNode('action.broadcast', 200, 160, { text: 'hi' });
+      a.canvasView.render();
+      await new Promise(r => setTimeout(r, 260));
+      const nodeEl = document.querySelector('.cv-node[data-id="' + n.id + '"]');
+      nodeEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 0, clientY: 0, button: 0 }));
+      nodeEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: 0, clientY: 0, button: 0 }));
+      nodeEl.click();
+      await new Promise(r => setTimeout(r, 260));
+      const dlg = document.getElementById('inspDialog');
+      out.dlgAfterSingle = dlg ? !dlg.hidden : null;
+      out.selectedAfterSingle = (st.store.selection || []).includes(n.id);
+
+      // 双击 → 弹出「控件设置」窗口
+      nodeEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: 0, clientY: 0 }));
+      await new Promise(r => setTimeout(r, 260));
+      out.dlgOpen = dlg ? !dlg.hidden : false;
+      out.dlgHasForm = !!(dlg && dlg.querySelector('#inspector .field, #inspector input, #inspector select'));
+      out.rightHasForm = !!(fm && fm.querySelector('input, select, textarea'));
+
+      // Esc 能关掉弹窗
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await new Promise(r => setTimeout(r, 150));
+      out.dlgClosedByEsc = dlg ? dlg.hidden : null;
+
+      // 没有参数的控件：卡片不该留空白（.no-body）
+      cur.nodes = []; cur.edges = [];
+      const ev2 = st.addNode('event.PlayerJoin', 120, 120, {});
+      a.canvasView.render();
+      await new Promise(r => setTimeout(r, 260));
+      const evEl = document.querySelector('.cv-node[data-id="' + ev2.id + '"]');
+      const body = evEl ? evEl.querySelector('.cv-node-body') : null;
+      out.evNoBody = !!(evEl && evEl.classList.contains('no-body'));
+      out.bodyHidden = !!(body && body.hidden);
+      return out;
+    })()`);
+    if (r.fmVisible && r.items === r.canvases && r.items > 0) {
+      ok(`右栏是插件文件管理器，列出全部 ${r.items} 个 .kts 文件`);
+    } else {
+      bad(`右栏文件管理器不对：可见=${r.fmVisible} 列出=${r.items} 画布=${r.canvases}`);
+    }
+    if (r.namesOk) ok('每个文件都显示成 xxx.kts');
+    else bad('文件名没有显示成 .kts');
+    if (r.dlgAfterSingle === false && r.selectedAfterSingle) {
+      ok('单击控件只选中、不弹窗');
+    } else {
+      bad(`单击就弹窗了（弹窗=${r.dlgAfterSingle} 选中=${r.selectedAfterSingle}）`);
+    }
+    if (r.dlgOpen && r.dlgHasForm) ok('双击控件弹出「控件设置」窗口，里面有参数表单');
+    else bad(`双击没有弹出参数窗口（open=${r.dlgOpen} form=${r.dlgHasForm}）`);
+    if (!r.rightHasForm) ok('右栏不再塞参数表单（腾给文件管理器了）');
+    else bad('右栏还留着参数表单');
+    if (r.dlgClosedByEsc) ok('按 Esc 能关掉参数窗口');
+    else bad('Esc 关不掉参数窗口');
+    if (r.evNoBody && r.bodyHidden) ok('没有参数的控件，卡片下方不留空白');
+    else bad(`没有参数的控件还留着空白（no-body=${r.evNoBody} hidden=${r.bodyHidden}）`);
+  }
+
+  // ---- 3. 点插件组进画布，检查浅色主题 ----
+  console.log('\n=== 3. 进入画布 · 主界面配色 ===');
+  {
+    // 点第一个插件组进画布
+    await evaluate(cdp, `(() => { const c = document.querySelector('.hm-card'); if (c) c.click(); })()`);
+    await new Promise((r) => setTimeout(r, 400));
+
+    const entered = await evaluate(cdp, `(() => ({
+      homeHidden: document.getElementById('home').hidden,
+      appVisible: !document.getElementById('app').hidden,
+    }))()`);
+    if (!entered.homeHidden || !entered.appVisible) bad('点插件组之后没有进入画布');
+    else ok('点插件组进入画布（首页收起）');
 
     const c = await evaluate(cdp, `(() => {
       const cs = getComputedStyle(document.documentElement);
@@ -207,6 +501,7 @@ try {
           const r = e.getBoundingClientRect(); return r.width > 50 && r.height > 50;
         }),
         libRenderer: !!document.querySelector('#lib .lib-group-head'),
+        leftWidth: Math.round(document.getElementById('left').getBoundingClientRect().width),
       };
     })()`);
 
@@ -222,6 +517,10 @@ try {
 
     if (!c.libRenderer) bad('控件库没有渲染出分类折叠头');
     else ok('控件库渲染出分类折叠头');
+
+    // 控件库加宽到 300px，且双排
+    if (c.leftWidth < 290) bad(`控件库宽度 ${c.leftWidth}px，应该 ≥ 300px（双排要地方）`);
+    else ok(`控件库宽 ${c.leftWidth}px（够放双排）`);
   }
 
   // ---- 4. 控件库默认全折叠，点一下能展开 ----
@@ -278,6 +577,9 @@ try {
         'query.players', 'query.blocks', 'query.countUnits', 'query.closestEnemy',
         'util.random', 'util.chance', 'util.currentTime', 'util.log',
         'util.returnList', 'util.waitSeconds',
+        // 第三批：交互 / 服务器
+        'interact.openMenu', 'interact.onMenuChoose', 'interact.closeMenu', 'interact.openURI',
+        'server.disableSelf', 'server.loadMap', 'server.teamRule', 'server.registerVar',
       ];
       const missing = mustHave.filter(k => !idx.defOf(k));
       // 每个控件都要能渲染出「中文名」和「代码提示」，否则卡片上是空的
@@ -295,13 +597,65 @@ try {
     if (r.err) bad(r.err);
     else {
       if (r.missing.length) bad(`这些控件没注册进目录：${r.missing.join(', ')}`);
-      else ok(`36 个新控件全部注册（目录共 ${r.total} 个）`);
+      else ok(`44 个新控件全部注册（目录共 ${r.total} 个）`);
       if (r.noLabel.length) bad(`缺中文名：${r.noLabel.join(', ')}`);
       else ok('新控件都有中文名');
       if (r.noHint.length) bad(`缺代码提示：${r.noHint.join(', ')}`);
       else ok('新控件都有代码提示');
       if (r.failedSearch.length) bad(`这些关键词搜不到控件：${r.failedSearch.map(s => s.q).join(', ')}`);
       else ok('中文关键词都能搜到对应控件');
+    }
+  }
+
+  // ---- 4c. 控件库是双排（不是单排） ----
+  console.log('\n=== 4c. 控件库双排 ===');
+  {
+    const r = await evaluate(cdp, `(async () => {
+      const measure = (body) => {
+        const cards = [...body.querySelectorAll('.lib-card')];
+        const wide = body.getBoundingClientRect().width;
+        const boxes = cards.slice(0, 6).map(c => {
+          const b = c.getBoundingClientRect();
+          return { x: Math.round(b.x), w: Math.round(b.width) };
+        });
+        const xs = [...new Set(boxes.map(b => b.x))];
+        const firstX = boxes[0].x;
+        const sameCol = boxes.filter(b => b.x === firstX).length;
+        return { count: cards.length, wide: Math.round(wide), xs, sameCol, boxes };
+      };
+      // 找一个「已展开且控件数 >= 4」的分类；没有就展开一个
+      let body = null;
+      for (const h of document.querySelectorAll('.lib-group-head')) {
+        const b = h.parentElement.querySelector('.lib-group-body');
+        if (b && !b.hidden && b.querySelectorAll('.lib-card').length >= 4) { body = b; break; }
+      }
+      if (!body) {
+        for (const h of document.querySelectorAll('.lib-group-head')) {
+          const b = h.parentElement.querySelector('.lib-group-body');
+          if (!b || !b.hidden) continue;
+          h.click();
+          await new Promise(r => setTimeout(r, 150));
+          if (b.querySelectorAll('.lib-card').length >= 4) { body = b; break; }
+          h.click();   // 不合适，收回去
+        }
+      }
+      if (!body) return { ok: false };
+      // 等一帧让 grid 布局稳定
+      await new Promise(r => requestAnimationFrame(r));
+      return Object.assign({ ok: true, label: body.parentElement.querySelector('.lg-label').textContent }, measure(body));
+    })()`);
+    if (!r.ok) bad('没找到控件数 ≥ 4 的已展开分类来验证双排');
+    else {
+      // 双排 = 至少出现两个不同的起始 x
+      if (r.xs.length < 2) bad(`「${r.label}」的 ${r.count} 个控件还是单排（起始 x 只有 ${r.xs.join(',')}）`);
+      else ok(`「${r.label}」${r.count} 个控件排成 ${r.xs.length} 列（起始 x：${r.xs.join('/')}）`);
+      // 同一列里要有多个 -> 确实换了行，而不是散开
+      if (r.xs.length >= 2 && r.sameCol < 2) bad('控件没有换行（可能只是宽度不齐）');
+      else if (r.xs.length >= 2) ok(`第 1 列有 ${r.sameCol} 个控件（确实换行了）`);
+      // 单张卡片不能窄到看不清字
+      const tooNarrow = r.boxes.filter(b => b.w < 90);
+      if (tooNarrow.length) bad(`有卡片只有 ${tooNarrow.map(b => b.w).join('/')}px 宽，太窄`);
+      else ok(`卡片宽度 ${r.boxes.map(b => b.w).join('/')}px（都 ≥ 90px）`);
     }
   }
 
@@ -351,8 +705,18 @@ try {
       const a = window.__app;
       a.closeModal();
       localStorage.clear();
+      // 第 15 轮：清空存档后 start() 会被当成「首次进入」，异步生成示例插件组，
+      // 那会在下面的等待窗口里重建画布、把刚拖进去的节点冲掉。
+      // 这两节测的是拖放本身，所以先把「已摆过示例」的标记打上（示例另有一节专测）。
+      localStorage.setItem('kts-builder.samples.v1', '1');
       a.start();
       await new Promise(r => setTimeout(r, 300));
+      // start() 现在会落到首页（整窗替换），下面要操作画布，先点进第一个插件组
+      {
+        const card = document.querySelector('.hm-card');
+        if (card) card.click();
+        await new Promise(r => setTimeout(r, 300));
+      }
 
       // 展开分类，找一张事件卡片
       let card = document.querySelector('.lib-card[data-def^="event."]');
@@ -384,8 +748,18 @@ try {
       const a = window.__app;
       a.closeModal();
       localStorage.clear();
+      // 第 15 轮：清空存档后 start() 会被当成「首次进入」，异步生成示例插件组，
+      // 那会在下面的等待窗口里重建画布、把刚拖进去的节点冲掉。
+      // 这两节测的是拖放本身，所以先把「已摆过示例」的标记打上（示例另有一节专测）。
+      localStorage.setItem('kts-builder.samples.v1', '1');
       a.start();
       await new Promise(r => setTimeout(r, 300));
+      // start() 现在会落到首页，先点进第一个插件组再操作画布
+      {
+        const card = document.querySelector('.hm-card');
+        if (card) card.click();
+        await new Promise(r => setTimeout(r, 300));
+      }
 
       // 展开分类找到一张事件卡片
       let card = document.querySelector('.lib-card[data-def^="event."]');
@@ -435,11 +809,22 @@ try {
       const emptyEl = document.querySelector('.cv-hint');
       const emptyStillVisible = visible(emptyEl) && nodes.length > 0;
       const emptyDisplay = emptyEl ? getComputedStyle(emptyEl).display : null;
-      // 落点应该就在鼠标位置附近
+      // 落点应该就在鼠标位置附近。
+      // 注意：新节点是 push 到 canvas.nodes 末尾的，DOM 里不一定是第一个 ——
+      // 所以按「离鼠标最近的那个节点」来判断落点，而不是死取 nodes[0]。
       let placedNear = null;
       if (nodes.length) {
-        const nr = nodes[0].getBoundingClientRect();
-        placedNear = Math.abs((nr.left + nr.width / 2) - gx) < 30 && Math.abs((nr.top + 20) - gy) < 40;
+        const boxes = nodes.map(function (el) { return el.getBoundingClientRect(); });
+        let best = boxes[0];
+        let bestD = 1e9;
+        for (const r of boxes) {
+          const dx = (r.left + r.width / 2) - gx;
+          const dy = (r.top + 20) - gy;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < bestD) { bestD = d; best = r; }
+        }
+        placedNear = Math.abs((best.left + best.width / 2) - gx) < 30
+          && Math.abs((best.top + 20) - gy) < 40;
       }
       // 顺便核对节点在浅色主题下的可读性
       let headBg = null, headLum = null, titleColor = null, titleLum = null;
@@ -583,7 +968,6 @@ try {
       const app = document.getElementById('app');
       const set = document.getElementById('settings');
       const visible = (el) => !!el && getComputedStyle(el).display !== 'none';
-
       // 打开设置
       document.querySelector('[data-act="settings"]').click();
       await new Promise(r => setTimeout(r, 250));
@@ -621,7 +1005,11 @@ try {
       set.querySelector('[data-act="back"]').click();
       await new Promise(r => setTimeout(r, 200));
       const closedBack = !visible(set) && visible(app);
-      return { opened, appearance, counts, closedBack };
+      return {
+        opened, appearance, counts, closedBack,
+        backSet: visible(set) ? 'still-visible' : 'hidden',
+        backApp: visible(app) ? 'visible' : 'still-hidden',
+      };
     })()`);
     if (r.err) bad(r.err);
     else {
@@ -642,7 +1030,7 @@ try {
       const total = Object.values(r.counts).reduce((a, b) => a + b, 0);
       if (total < 9) bad(`设置项只有 ${total} 个，偏少`);
       else ok(`各类共有 ${total} 个设置项（${Object.entries(r.counts).map(([k, v]) => k + ' ' + v).join('，')}）`);
-      if (!r.closedBack) bad('点「返回」没回到主界面');
+      if (!r.closedBack) bad(`点「返回」没回到主界面（settings=${r.backSet} app=${r.backApp}）`);
       else ok('点「返回」回到主界面');
     }
   }

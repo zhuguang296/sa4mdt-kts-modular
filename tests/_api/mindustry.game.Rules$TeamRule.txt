@@ -1,0 +1,29 @@
+Compiled from "Rules.java"
+public class mindustry.game.Rules$TeamRule {
+  public boolean aiCoreSpawn;
+  public boolean protectCores;
+  public boolean checkPlacement;
+  public boolean cheat;
+  public boolean fillItems;
+  public boolean infiniteResources;
+  public boolean prebuildAi;
+  public boolean buildAi;
+  public float buildAiTier;
+  public boolean rtsAi;
+  public int rtsMinSquad;
+  public int rtsMaxSquad;
+  public float rtsMinWeight;
+  public float unitFactoryActivationDelay;
+  public float unitBuildSpeedMultiplier;
+  public float unitDamageMultiplier;
+  public float unitCrashDamageMultiplier;
+  public float unitMineSpeedMultiplier;
+  public float unitCostMultiplier;
+  public float unitHealthMultiplier;
+  public float blockHealthMultiplier;
+  public float blockDamageMultiplier;
+  public float buildSpeedMultiplier;
+  public float extraCoreBuildRadius;
+  public mindustry.game.Rules$TeamRule();
+  public mindustry.game.Rules$TeamRule(mindustry.game.Team);
+}

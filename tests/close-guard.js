@@ -145,23 +145,23 @@ async function launch(port) {
  * 报出 `Cannot read properties of null (reading 'getBoundingClientRect')`。
  * 那是个假失败：工具没问题，是测试等得不够。
  *
- * 改成轮询真实就绪标志（欢迎页关掉 + 画布视口存在），最多等 15 秒。
+ * 改成轮询真实就绪标志（首页收起了 + 画布视口存在），最多等 15 秒。
  */
 async function waitReady(cdp, tries = 50) {
   for (let i = 0; i < tries; i++) {
     try {
       const ready = await evaluate(cdp, `(() => {
         // App 挂上了、画布建好了，才算能开始操作
-        const skip = document.getElementById('obSkip');
-        return !!(window.__app && document.querySelector('.cv-viewport') && !skip);
+        const home = document.getElementById('home');
+        return !!(window.__app && document.querySelector('.cv-viewport') && home && home.hidden);
       })()`);
       if (ready) {
         // 再给一帧让布局稳定（getBoundingClientRect 要有非零尺寸）
         await new Promise((r) => setTimeout(r, 250));
         return true;
       }
-      // 欢迎页挡着就先关掉
-      await evaluate(cdp, `(() => { const b=document.getElementById('obSkip'); if(b) b.click(); return true; })()`).catch(() => {});
+      // 还停在首页就先点进画布
+      await evaluate(cdp, `(() => { const c = document.querySelector('.hm-card'); if (c) c.click(); return true; })()`).catch(() => {});
     } catch { /* 页面还没就绪，继续等 */ }
     await new Promise((r) => setTimeout(r, 300));
   }
@@ -315,9 +315,10 @@ async function scenarioClean() {
   try {
     console.log(`\n=== 场景 B：刚打开、没有改动（pid ${s.child.pid}）===\n`);
 
-    // 欢迎页先跳过，进入主界面（这一步本来就不算改动）
+    // 首页先点进画布，进入工作区（这一步本来就不算改动）
     await evaluate(s.cdp, `(async () => {
-      document.getElementById('obSkip')?.click();
+      const c = document.querySelector('.hm-card');
+      if (c) c.click();
       await new Promise(r => setTimeout(r, 500));
       return true;
     })()`);

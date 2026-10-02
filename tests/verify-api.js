@@ -101,6 +101,27 @@ const CHECKS = [
   ['Team.data()', /mindustry\.game\.Teams\$TeamData data\(\)/, 'mindustry.game.Team'],
   ['Team.core()', /CoreBuild core\(\)/, 'mindustry.game.Team'],
   ['TeamData.players', /Seq<mindustry\.gen\.Player> players;/, 'mindustry.game.Teams$TeamData'],
+
+  // ---- 交互（第三批）----
+  // 菜单：followup 与普通菜单是两套调用，签名都是 (con,id,title,msg,String[][])
+  ['Call.followUpMenu(con,id,str,str,String[][])',
+    /followUpMenu\(mindustry\.net\.NetConnection, int, java\.lang\.String, java\.lang\.String, java\.lang\.String\[\]\[\]\)/, 'mindustry.gen.Call'],
+  ['Call.menu(con,id,str,str,String[][])',
+    /void menu\(mindustry\.net\.NetConnection, int, java\.lang\.String, java\.lang\.String, java\.lang\.String\[\]\[\]\)/, 'mindustry.gen.Call'],
+  ['Call.hideFollowUpMenu(con,id)',
+    /hideFollowUpMenu\(mindustry\.net\.NetConnection, int\)/, 'mindustry.gen.Call'],
+  ['Call.openURI(con,str)',
+    /openURI\(mindustry\.net\.NetConnection, java\.lang\.String\)/, 'mindustry.gen.Call'],
+
+  // ---- 服务器（第三批）----
+  // 队伍属性：state.rules.teams.get(Team.get(n)).<field>
+  // Vars 上**没有** rules 字段，必须走 state（这就是当初写错的地方）
+  ['Team.get(int)', /static mindustry\.game\.Team get\(int\)/, 'mindustry.game.Team'],
+  ['Rules.teams', /mindustry\.game\.Rules\$TeamRules teams;/, 'mindustry.game.Rules'],
+  ['TeamRules.get(Team)', /mindustry\.game\.Rules\$TeamRule get\(mindustry\.game\.Team\)/, 'mindustry.game.Rules$TeamRules'],
+  ['TeamRule.cheat 是 boolean', /public boolean cheat;/, 'mindustry.game.Rules$TeamRule'],
+  ['TeamRule.unitHealthMultiplier 是 float', /public float unitHealthMultiplier;/, 'mindustry.game.Rules$TeamRule'],
+  ['GameState.rules', /public mindustry\.game\.Rules rules;/, 'mindustry.core.GameState'],
 ];
 
 // 反面检查：这些写法曾经写错过，确认它们确实不存在，避免又写回去
@@ -110,6 +131,11 @@ const NEGATIVE = [
   // hasPermission 不在 Player 上 —— 它是 coreMindustry 的 suspend 扩展函数，
   // 所以事件体里根本不能调（改用非挂起的 PermissionApi.check）
   ['Player 上不该有 hasPermission', /hasPermission/, 'mindustry.gen.Player'],
+  // 队伍属性曾经写成 `Vars.rules.teams[...]` —— Vars 上没有 rules，只有 state。
+  // 这条一旦重新出现，生成的代码就会 unresolved reference。
+  ['Vars 上不该有 rules（要用 state.rules）', /public static mindustry\.game\.Rules rules;/, 'mindustry.Vars'],
+  // 队伍属性表是 Rules$TeamRules，不是 Teams$TeamData —— 后者是玩家列表
+  ['TeamRules 上不该有 players', /Seq<mindustry\.gen\.Player> players;/, 'mindustry.game.Rules$TeamRules'],
 ];
 
 // 正面检查：控件目录里真正会输出的表达式，必须都能在 jar 的签名里找到依据。

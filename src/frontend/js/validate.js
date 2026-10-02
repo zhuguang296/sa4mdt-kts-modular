@@ -143,12 +143,8 @@ function checkCanvas(c, m, E, W, commandNames) {
       }
     }
 
-    // 需要额外依赖的控件：模块里没声明依赖就提醒
-    for (const dep of d.requiresDeps || []) {
-      if (!(m.deps || []).includes(dep)) {
-        W(`「${d.label}」需要依赖 ${dep}，当前模块没有声明。请在「新建模块」里勾上，或手动加上 @file:Depends("${dep}")`, { ...ctxInfo, nodeId: n.id });
-      }
-    }
+    // 需要额外依赖的控件：生成时会自动把 requiresDeps 补进文件头（generate.js），
+    // 不需要用户手动在模块配置里勾，所以这里不再发警告。
 
     // 孤立节点
     if (isRootNode(c, n.id) && !d.isRoot && d.category !== 'event' && !d.canBeRoot) {

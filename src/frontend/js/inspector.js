@@ -1,5 +1,5 @@
 // 右侧参数面板：根据控件定义的 props 动态生成表单
-import { defOf } from './catalog/index.js';
+import { defOf, CATEGORY_LABEL } from './catalog/index.js';
 import { fieldOptionsFor, operatorsOf } from './catalog/conditions.js';
 import { PORT_TYPES } from './catalog/types.js';
 import { varsInScopeAt } from './generate.js';
@@ -10,13 +10,22 @@ export class Inspector {
   constructor(root) {
     this.root = root;
     this.nodeId = null;
+    this.connectError = null;   // 最近的连线失败原因（右侧面板顶部红条）
     this.root.addEventListener('input', (e) => this.onInput(e));
     this.root.addEventListener('change', (e) => this.onInput(e));
     this.root.addEventListener('click', (e) => this.onClick(e));
   }
 
+  /** 右侧面板显示「为什么不能连」；msg 为空则清除 */
+  showConnectError(msg) {
+    this.connectError = msg || null;
+    this.render();
+  }
+
   show(nodeId) {
     this.nodeId = nodeId;
+    // 换了一个选中控件，旧连线错误提示就不贴着了
+    this.connectError = null;
     this.render();
   }
 
@@ -39,6 +48,14 @@ export class Inspector {
 
     const vars = this.availableVars(node.id);
     const parts = [];
+
+    // 连线失败原因（用户第 3 条：在右侧说明为什么不能连）
+    if (this.connectError) {
+      parts.push(`<div class="insp-connerr" role="alert">
+          <span class="insp-connerr-ic">${WARN_ICON}</span>
+          <span class="insp-connerr-tx">${esc(this.connectError)}</span>
+        </div>`);
+    }
 
     parts.push(`<div class="insp-head">
         <div class="insp-cat">${esc(catLabel(d.category))}</div>
@@ -82,7 +99,11 @@ export class Inspector {
   }
 
   noSelection() {
-    return `<div class="insp-empty">
+    const err = this.connectError ? `<div class="insp-connerr" role="alert">
+      <span class="insp-connerr-ic">${WARN_ICON}</span>
+      <span class="insp-connerr-tx">${esc(this.connectError)}</span>
+    </div>` : '';
+    return `${err}<div class="insp-empty">
       <div class="ie-title">没有选中任何功能块</div>
       <div class="ie-sub">点画布上的任何一个方块，这里就会显示它的设置</div>
     </div>`;
@@ -346,7 +367,9 @@ function visible(node, p) {
 }
 
 function catLabel(c) {
-  return { event: '当……发生时', action: '要做的事', condition: '如果……就', data: '记住一个值', loop: '重复执行', timer: '定时执行', query: '查找对象' }[c] || c;
+  // 单一出处：catalog/index.js 的 CATEGORY_LABEL。这里曾经自己抄了一份，
+  // 结果新增分类时漏掉就退化成英文 key。
+  return CATEGORY_LABEL[c] || c;
 }
 
 function esc(s) {
@@ -356,3 +379,6 @@ function esc(s) {
 function empty(t) {
   return `<div class="insp-empty"><div class="ie-title">${esc(t)}</div></div>`;
 }
+
+// 内联 SVG 警告图标（界面不用 emoji，用图标工具）
+const WARN_ICON = `<svg viewBox="0 0 16 16" class="ic-warn" width="14" height="14" aria-hidden="true"><path d="M8 1.5 15 14.5H1z" fill="currentColor"/><path d="M7.2 5.5h1.6v4.4H7.2z" fill="#fff"/><circle cx="8" cy="12" r="1" fill="#fff"/></svg>`;

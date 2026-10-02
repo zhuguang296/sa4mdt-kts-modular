@@ -24,6 +24,10 @@ export class SettingsPage {
     this.appInfo = opts.appInfo || {};
     // 日志相关能力由外面注入（要调 IPC，settingspage 不该直接依赖 Tauri）
     this.logApi = opts.logApi || {};
+    // 第 15 轮：致谢页的外链按钮 —— 用系统浏览器打开（Rust open_external）。
+    // 注入式：非 Tauri 环境退化成 window.open。
+    this.onOpenLink = opts.onOpenLink || null;
+    this.toast = opts.toast || (() => {});
     this.logText = '';              // 当前显示的日志内容
     this.logLoaded = false;
   }
@@ -112,6 +116,22 @@ export class SettingsPage {
       // 只读展示（版本、协议、版权人）：没有控件，右边直接显示值；值可能来自
       // Rust（编译期版本号），拿不到就显示占位。
       control = `<div class="set-info" data-info="${esc(it.key)}">${esc(this.infoValue(it.key))}</div>`;
+    } else if (it.type === 'thanks') {
+      // 第 15 轮：致谢名单。链接文字本身是可读的，按钮只放「跳转 / 快捷注册」
+      // （用户明确要求按钮只显示这两个词，不把长 URL 塞进按钮里）。
+      const links = it.links || [];
+      control = `
+        <div class="set-thanks">
+          <div class="set-thanks-line">${esc(it.credit || '')}</div>
+          <div class="set-thanks-links">
+            ${links.map((l) => `
+              <button class="btn set-thanks-btn" data-link="${esc(l.url)}">${esc(l.label)}</button>
+            `).join('')}
+          </div>
+          <div class="set-thanks-urls">
+            ${links.map((l) => `<div class="set-thanks-url">${esc(l.url)}</div>`).join('')}
+          </div>
+        </div>`;
     } else if (it.type === 'bool') {
       control = `
         <label class="set-switch">
@@ -120,12 +140,16 @@ export class SettingsPage {
           <span class="set-switch-text">${v ? '开启' : '关闭'}</span>
         </label>`;
     } else if (it.type === 'number') {
+      // scale：存储值 ÷ scale = 界面显示值。用于「内部按毫秒存、界面按秒显示」
+      // （第 15 轮用户要求：自动保存间隔的单位要是 s）。
+      const sc = Number(it.scale) || 1;
+      const min = Number(it.min) / sc, max = Number(it.max) / sc, step = Number(it.step) / sc;
       control = `
         <div class="set-number">
-          <input type="range" data-key="${esc(it.key)}" data-kind="range"
-                 min="${it.min}" max="${it.max}" step="${it.step}" value="${v}">
-          <input type="number" data-key="${esc(it.key)}" data-kind="num"
-                 min="${it.min}" max="${it.max}" step="${it.step}" value="${v}">
+          <input type="range" data-key="${esc(it.key)}" data-kind="range" data-scale="${sc}"
+                 min="${min}" max="${max}" step="${step}" value="${Number(v) / sc}">
+          <input type="number" data-key="${esc(it.key)}" data-kind="num" data-scale="${sc}"
+                 min="${min}" max="${max}" step="${step}" value="${Number(v) / sc}">
           <span class="set-unit">${esc(it.unit || '')}</span>
         </div>`;
     } else if (it.type === 'select') {
@@ -238,17 +262,19 @@ export class SettingsPage {
       });
     });
 
-    // 数字：滑块和数字框互相同步
+    // 数字：滑块和数字框互相同步。带 data-scale 的项（如自动保存间隔）
+    // 界面上是「秒」，存进去要 × scale 还原成毫秒。
+    const toStored = (el, shown) => String(Number(shown) * (Number(el.dataset.scale) || 1));
     root.querySelectorAll('input[type=range][data-key]').forEach((el) => {
       el.addEventListener('input', () => {
-        S.set(el.dataset.key, el.value);
+        S.set(el.dataset.key, toStored(el, el.value));
         const num = root.querySelector(`input[data-kind="num"][data-key="${el.dataset.key}"]`);
-        if (num) num.value = S.get(el.dataset.key);
+        if (num) num.value = el.value;
       });
     });
     root.querySelectorAll('input[data-kind="num"]').forEach((el) => {
       el.addEventListener('change', () => {
-        S.set(el.dataset.key, el.value);
+        S.set(el.dataset.key, toStored(el, el.value));
         this.render();
       });
     });
@@ -266,5 +292,21 @@ export class SettingsPage {
     }
     const clr = root.querySelector('[data-act="cleardir"]');
     if (clr) clr.addEventListener('click', () => { S.set('exportDir', ''); this.render(); });
+
+    // 致谢名单的外链（跳转 / 快捷注册）——一律交给系统浏览器打开。
+    // 没有注入 openExternal（比如非 Tauri 环境）时退化成 window.open。
+    root.querySelectorAll('.set-thanks-btn[data-link]').forEach((b) => {
+      b.addEventListener('click', async () => {
+        const url = b.dataset.link;
+        try {
+          if (this.onOpenLink) await this.onOpenLink(url);
+          else window.open(url, '_blank', 'noopener');
+          log.action('打开外链: ' + url);
+        } catch (e) {
+          log.warn('打开外链失败: ' + e);
+          this.toast && this.toast('打不开浏览器，请手动访问：' + url, 'warn');
+        }
+      });
+    });
   }
 }

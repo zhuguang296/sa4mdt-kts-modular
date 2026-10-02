@@ -81,24 +81,24 @@ export function isRootNode(canvas, nodeId) {
 export function checkConnect(canvas, from, to, defs) {
   const fromNode = nodeById(canvas, from.node);
   const toNode = nodeById(canvas, to.node);
-  if (!fromNode || !toNode) return { ok: false, reason: '找不到控件' };
+  if (!fromNode || !toNode) return { ok: false, reason: '找不到要连的控件，看看是不是已经删掉了' };
   const fromDef = defs.defOf(fromNode.def);
   const toDef = defs.defOf(toNode.def);
   if (!fromDef || !toDef) return { ok: false, reason: '不认识的控件' };
-  if (from.node === to.node) return { ok: false, reason: '不能连到自己' };
+  if (from.node === to.node) return { ok: false, reason: '不能连到自己：一个控件不能接到它自己后面' };
 
   const fp = (fromDef.outPorts || []).find(p => p.id === from.port);
   const tp = (toDef.inPorts || []).find(p => p.id === to.port);
-  if (!fp) return { ok: false, reason: `「${fromDef.label}」没有这个出口` };
-  if (!tp) return { ok: false, reason: `「${toDef.label}」没有这个入口` };
+  if (!fp) return { ok: false, reason: `「${fromDef.label}」没有这个出口：出口是它右侧的小圆点，别从别的地方拉线` };
+  if (!tp) return { ok: false, reason: `「${toDef.label}」没有这个入口：入口是它左侧的小圆点，别接到别的地方` };
 
   if (fp.type !== 'flow' || tp.type !== 'flow') {
-    return { ok: false, reason: '只有「执行」类型的接口可以连线' };
+    return { ok: false, reason: '只有「执行」类型的接口可以连线：普通数据/引用接口不是用来连线的，直接在下拉里选就行' };
   }
   if ((toDef.inPorts || []).length === 0) {
-    return { ok: false, reason: `「${toDef.label}」是起点，不能接在别的控件后面` };
+    return { ok: false, reason: `「${toDef.label}」是起点（自己触发），不能接在别的控件后面` };
   }
-  if (fromDef.key === toDef.key && toDef.isRoot) return { ok: false, reason: '这类控件不能嵌套自己' };
+  if (fromDef.key === toDef.key && toDef.isRoot) return { ok: false, reason: '这类控件不能嵌套自己：同一个起点控件不能放进它自己里面' };
 
   // 禁环
   if (reaches(canvas, to.node, from.node)) {

@@ -164,6 +164,20 @@ export function autoSave() {
   }, delay);
 }
 
+/**
+ * 立刻把工程写进本地存档（不等自动保存的定时器）。
+ * 给「安全重载界面」（F5 拦截）用：刷新前必须同步写完，否则 setTimeout
+ * 里那次保存会随着页面卸载一起丢掉。
+ * @returns {boolean} 是否写成功
+ */
+export function saveNow() {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  try {
+    localStorage.setItem(LS_KEY, M.serialize(store.project));
+    return true;
+  } catch (e) { return false; }
+}
+
 // ---------------- 「有没有没存成文件」 ----------------
 
 /**
@@ -176,15 +190,39 @@ export function autoSave() {
  */
 let savedSnapshot = null;
 
+/**
+ * 做「有没有改动」比对时用的快照。
+ *
+ * 关键在于**剔除 `activeCanvas`**：那只是「用户现在站在哪个画布上」的光标，
+ * 不是工程内容。不剔掉的话，光是切标签页、或者从首页点进某个插件组，
+ * 序列化结果就变了 —— 明明一个字没改，状态栏却亮起「未保存」，
+ * 关窗还要拦一道问要不要保存。
+ */
+function contentSnapshot() {
+  try {
+    const project = store.project;
+    if (!project) return null;
+    // 无条件剔除 activeCanvas —— 注意不能「只有它非空时才剔」：
+    // 那样基准里留着 "activeCanvas": null、切换后却整个键消失，
+    // 两边照样对不上，等于白改。
+    const { activeCanvas, ...rest } = project;
+    return M.serialize(rest);
+  } catch (e) {
+    return null;
+  }
+}
+
 /** 记下「此刻就是已保存状态」 */
 export function markSaved() {
-  try { savedSnapshot = M.serialize(store.project); } catch (e) { savedSnapshot = null; }
+  savedSnapshot = contentSnapshot();
 }
 
 /** 现在有没有未保存到文件的改动 */
 export function isDirty() {
   if (savedSnapshot === null) return false;   // 还没基准（刚启动的新工程）
-  try { return M.serialize(store.project) !== savedSnapshot; } catch (e) { return false; }
+  const now = contentSnapshot();
+  if (now === null) return false;
+  return now !== savedSnapshot;
 }
 
 /** 建立一个「干净」基准。启动时从 localStorage 恢复出来的状态就当作已保存。 */

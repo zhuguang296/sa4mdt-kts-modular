@@ -58,8 +58,30 @@ function showFatal(title, detail) {
 
   const head = document.createElement('div');
   head.className = 'fatal-head';
+  // 界面图标用内联 SVG，不用 emoji
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('width', '15');
+  svg.setAttribute('height', '15');
+  svg.setAttribute('class', 'ic-warn');
+  svg.setAttribute('aria-hidden', 'true');
+  const tri = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  tri.setAttribute('d', 'M8 1.5 15 14.5H1z');
+  tri.setAttribute('fill', 'currentColor');
+  svg.appendChild(tri);
+  const ex = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  ex.setAttribute('d', 'M7.2 5.5h1.6v4.4H7.2z');
+  ex.setAttribute('fill', '#fff');
+  svg.appendChild(ex);
+  const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  dot.setAttribute('cx', '8');
+  dot.setAttribute('cy', '12');
+  dot.setAttribute('r', '1');
+  dot.setAttribute('fill', '#fff');
+  svg.appendChild(dot);
+  head.appendChild(svg);
   const strong = document.createElement('b');
-  strong.textContent = '⚠ ' + title;
+  strong.textContent = title;
   head.appendChild(strong);
 
   const pre = document.createElement('pre');

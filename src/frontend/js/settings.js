@@ -84,9 +84,12 @@ export const SECTIONS = [
         desc: '导出完自动在资源管理器里定位到结果。',
       },
       {
-        key: 'autosaveMs', type: 'number', default: 400, min: 100, max: 5000, step: 100, unit: 'ms',
-        label: '自动保存间隔',
-        desc: '改动后多久写一次本地存档（防止意外关掉丢进度）。',
+        // 内部仍按毫秒存（store.autoSave 里直接用），界面按「秒」显示：
+        // scale=1000 让 400ms 显示成 0.4 秒（第 15 轮用户要求单位是 s）。
+        key: 'autosaveMs', type: 'number', default: 400, min: 100, max: 5000, step: 100,
+        unit: 's', scale: 1000,
+        label: '自动保存间隔（秒）',
+        desc: '改动后多久写一次本地存档（防止意外关掉丢进度）。填 1 就是 1 秒后保存。',
       },
     ],
   },
@@ -132,6 +135,17 @@ export const SECTIONS = [
         key: '__target', type: 'info', label: '代码生成目标',
         desc: 'ScriptAgent4MindustryExt 3.4.0（生成的 .kts 直接放进 scripts/ 用 /sa scan 加载）',
       },
+      {
+        // 第 15 轮：致谢名单（用户要求必须有）。
+        // 按钮只显示「跳转 / 快捷注册」两个词 —— 完整 URL 单独列在下面。
+        key: '__thanks', type: 'thanks', label: '致谢名单',
+        desc: '本工具的开发过程得到了以下社区与平台的支持。',
+        credit: 'EOCC 共创社区 - LLM 分发聚合平台提供模型协作',
+        links: [
+          { label: '跳转', url: 'https://ai.www.eocc.top' },
+          { label: '快捷注册', url: 'https://ai.www.eocc.top/register?aff=kSPR' },
+        ],
+      },
     ],
   },
 ];
@@ -149,7 +163,7 @@ export const ITEM_BY_KEY = (() => {
  * 两类都必须排除在 defaults()/loadSettings() 之外，否则会被当成用户设置写进
  * localStorage，下次启动又读回来 —— 等于把日志内容也存了一份。
  */
-export const isInfo = (it) => it.type === 'info' || it.type === 'logview';
+export const isInfo = (it) => it.type === 'info' || it.type === 'logview' || it.type === 'thanks';
 
 /**
  * 默认值（从 schema 推出来，不手写第二份）。

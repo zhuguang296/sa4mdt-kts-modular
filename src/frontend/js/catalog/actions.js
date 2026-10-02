@@ -390,6 +390,8 @@ export const ACTIONS = [
       { key: 'aliases', type: 'text', label: '别名（用逗号分隔）', default: '' },
       { key: 'playerOnly', type: 'boolean', label: '只有玩家能用', default: true },
       { key: 'permission', type: 'text', label: '需要的权限（留空则人人可用）', default: '' },
+      { key: 'cooldownSec', type: 'number', label: '冷却（秒，0 = 不限）', default: 0, min: 0,
+        hint: '同一个人在这个秒数内重复用，会被挡下来' },
     ],
     // 特殊：需要包一层 body { }
     wrapper: true,
@@ -399,19 +401,44 @@ export const ACTIONS = [
       const name = String(n.props.name || '').trim();
       if (!name) return { error: '「服务器指令」还没填指令名字' };
       if (/\s/.test(name)) return { error: `指令名字不能有空格：${name}` };
-      const lines = [`command(${ctx.lit(name)}, ${ctx.lit(n.props.desc || '')}) {`];
+      const lines = [];
       const aliases = String(n.props.aliases || '')
         .split(/[,，]/).map(s => s.trim()).filter(Boolean);
+      const perm = String(n.props.permission || '').trim();
+
+      // 冷却：CommandApi.kt:194 的 attrs.forEach 在 body 之前跑，但 CommandInfo.attr
+      // 必须在 body 之前调用（:140 有 frozen 守卫），而我们要「检查 + 记录」两件事。
+      // 真实的 SkillCooldown（wayzer/user/ext/skills.lib.kt:31）只检查、不记录 ——
+      // setCoolDown() 只有 skillBody 才会调（:92），普通 body { } 里用它就会「用一次
+      // 之后永远不能用」。所以这里自己维护一张表，和 vote.lib.kt:215 的
+      // `internal val coolDowns = mutableMapOf<String, Long>()` 是同一套办法。
+      const sec = Math.max(0, Number(n.props.cooldownSec) || 0);
+      // 用节点 id 而不是指令名：同一张画布上两个指令重名时也不会撞声明
+      const mapName = `cd_${String(n.id).replace(/[^A-Za-z0-9_]/g, '_')}`;
+      if (sec > 0) lines.push(`val ${mapName} = mutableMapOf<String, Long>()`);
+
+      lines.push(`command(${ctx.lit(name)}, ${ctx.lit(n.props.desc || '')}) {`);
       if (aliases.length) lines.push(`    aliases = listOf(${aliases.map(a => ctx.lit(a)).join(', ')})`);
       if (n.props.playerOnly) lines.push(`    attr(ClientOnly)`);
-      const perm = String(n.props.permission || '').trim();
       if (perm) lines.push(`    requirePermission(${ctx.lit(perm)})`);
       // body { 由生成器的 wrapper 逻辑补上
       // 指令体里「当前玩家」就是 player!!（勾了「只有玩家能用」时它一定不为空）
       const sv = n.props.playerOnly
         ? [{ name: 'player', type: 'Player', expr: 'player!!' }]
         : [];
-      return { lines, scopeVars: sv };
+
+      const bodyPrelude = [];
+      if (sec > 0) {
+        const ms = Math.round(sec * 1000);
+        // player 在这里用 CommandContext.player（CommandImpl.kt:187，可能为 null），
+        // 所以加个兜底 key，非玩家执行也不会崩。
+        bodyPrelude.push(`val cdKey = player?.uuid() ?: "-"`);
+        bodyPrelude.push(`val cdNow = System.currentTimeMillis()`);
+        bodyPrelude.push(`if (cdNow - (${mapName}[cdKey] ?: 0L) < ${ms}L) return@body reply("[yellow]冷却中，请稍后再试".with())`);
+        bodyPrelude.push(`${mapName}[cdKey] = cdNow`);
+      }
+
+      return { lines, scopeVars: sv, bodyPrelude };
     },
   },
 
@@ -565,7 +592,6 @@ export const ACTIONS = [
       if (!name) return { error: '「长期存储」还没填表名字' };
       return {
         lines: [
-          `// 需要依赖 coreLibrary/extApi/KVStore`,
           `val store = Services.get<KVStore>().get().open(${ctx.lit(name)}, StringDataType.INSTANCE)`,
         ],
         extraDeps: ['coreLibrary/extApi/KVStore'],

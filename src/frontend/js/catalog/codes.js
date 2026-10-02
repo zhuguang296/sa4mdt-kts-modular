@@ -4,7 +4,7 @@
 //
 // 编码 = 下标转 base36。所以**顺序就是编码**。
 //
-// ⚠ 这张表只允许「往后追加」：
+// 注意：这张表只允许「往后追加」：
 //   * 加新控件：在数组**末尾**追加，用掉下一个没被用过的下标。
 //   * 不要改顺序、不要在中间插、不要删条目 ——
 //     用户已经导出的 .kts 里存的是编码，一动就会认成别的控件。
@@ -98,6 +98,16 @@ export const DEF_CODES = [
   'util.random',
   'util.returnList',
   'util.waitSeconds',
+  // interact
+  'interact.openMenu',
+  'interact.onMenuChoose',
+  'interact.closeMenu',
+  'interact.openURI',
+  // server
+  'server.disableSelf',
+  'server.loadMap',
+  'server.teamRule',
+  'server.registerVar',
 ];
 
 const CODE_TO_KEY = new Map();

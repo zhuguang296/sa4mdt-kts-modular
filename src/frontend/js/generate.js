@@ -7,6 +7,7 @@
 import { sortSiblings, structuralInEdges, outEdges, nodeById } from './model.js';
 import { defOf } from './catalog/index.js';
 import { nodeAnchor } from './anchor.js';
+import { VERSION } from './version.js';
 
 const IND = '    ';
 
@@ -319,9 +320,14 @@ export function generateCanvas(module, canvas, project) {
   const errors = [];
   const warnings = [];
   const deps = new Set(module.deps && module.deps.length ? module.deps : ['coreMindustry']);
+  // 用到的控件如果声明了 requiresDeps，自动补进文件头（用户第 2 条要求）
+  for (const n of canvas.nodes) {
+    const d = defOf(n.def);
+    if (d && d.requiresDeps) for (const dep of d.requiresDeps) deps.add(dep);
+  }
   const imports = new Set();
 
-  const env = { canvas, deps, imports, errors, warnings, used: new Map(), labelStack: [], anchorSeq: 1 };
+  const env = { canvas, deps, imports, errors, warnings, used: new Map(), labelStack: [], anchors: [], notes: [] };
   const body = [];
 
   const roots = sortSiblings(canvas.nodes.filter(n => structuralInEdges(canvas, n.id).length === 0));
@@ -369,6 +375,25 @@ export function generateCanvas(module, canvas, project) {
   let text = header.join('\n');
   if (body.length) text += '\n' + body.join('\n') + '\n';
 
+  // ── 底部识别块（第 14 轮精简版）──
+  // 布局：正文（零注释）→ 空两行 → 三行固定注释 → 识别标记与全部位置锚点。
+  // 注释只保留这三行；锚点里带非默认参数，能做到「完全恢复」。
+  // 删除本块后本工具将无法识别此文件。
+  const footer = [
+    '', '',
+    '// kts-modular 生成',
+    '// 删除后无法恢复',
+    '// 锚点（详细，可以完全恢复）',
+    `//@kts ${VERSION}`,
+    ...env.anchors,
+  ];
+  // 生成失败的控件：错误说明仍放进底部（必要的诊断信息，不算「说明注释」）
+  if (env.notes.length) {
+    footer.push('', '// 生成说明：');
+    footer.push(...env.notes);
+  }
+  text += footer.join('\n') + '\n';
+
   return { text, errors, warnings, deps, imports };
 }
 
@@ -377,7 +402,16 @@ export function generateModuleFile(module) {
   const lines = [];
   for (const d of deps) lines.push(`@file:Depends(${kotlinString(d)})`);
   lines.push('', `package ${module.id}`, '');
-  return lines.join('\n');
+  // 模块入口文件也带识别标记，删除后同样无法识别。
+  // 注释与画布文件一致：只保留三行固定注释 + 识别标记（无锚点）。
+  const footer = [
+    '', '',
+    '// kts-modular 生成',
+    '// 删除后无法恢复',
+    '// 锚点（详细，可以完全恢复）',
+    `//@kts ${VERSION}`,
+  ];
+  return lines.join('\n') + footer.join('\n') + '\n';
 }
 
 function emitNode(node, scope, depth, env) {
@@ -387,12 +421,15 @@ function emitNode(node, scope, depth, env) {
 
   if (!d) {
     env.errors.push({ nodeId: node.id, message: `不认识这个功能块：${node.def}` });
-    lines.push(`${ind}// 未知控件 ${node.def}`);
+    // 正文保持零注释：未知控件只在底部注释区说明
+    env.notes.push(`// 未知控件 ${node.def}`);
     return { lines, outVars: [] };
   }
 
-  // 锚点顶格写：层级已经记在锚点里了，再缩进一遍纯属浪费字节
-  lines.push(nodeAnchor(node, depth));
+  // 锚点不写在正文里了（正文保持零注释）：收集到 env.anchors，
+  // 最后由 generateCanvas 统一放到文件底部的识别块里。
+  // 第 14 轮：锚点带非默认参数（nodeAnchor 里编码），导入时能完全恢复。
+  env.anchors.push(nodeAnchor(node, depth, d));
 
   // 提前返回要用的标签。Kotlin 的标签取自 lambda 传给的函数名：listen ->
   // return@listen、repeat -> return@repeat、forEach -> return@forEach、
@@ -414,12 +451,12 @@ function emitNodeBody(node, scope, depth, env, ind, d, lines) {
     res = d.emit(node, makeApi(scope, env)) || { lines: [] };
   } catch (e) {
     env.errors.push({ nodeId: node.id, message: `「${d.label}」生成代码时出错：${e.message}` });
-    lines.push(`${ind}// ⚠ ${d.label}：生成失败（${e.message}）`);
+    env.notes.push(`// 生成失败：${d.label}（${e.message}）`);
     return { lines, outVars: [] };
   }
   if (res.error) {
     env.errors.push({ nodeId: node.id, message: res.error });
-    lines.push(`${ind}// ⚠ ${d.label}：${res.error}`);
+    env.notes.push(`// 生成失败：${d.label}：${res.error}`);
     return { lines, outVars: [] };
   }
 
@@ -475,6 +512,9 @@ function emitNodeBody(node, scope, depth, env, ind, d, lines) {
     lines.push(...d.expand(node, res, api));
   } else if (d.wrapper) {
     lines.push(`${ind}    body {`);
+    // bodyPrelude：要写在 body { } 里、子节点之前的语句（如指令自身的冷却检查）。
+    // 子节点缩进是 childIndent+1，这里比它再深一层对齐到 body 内部。
+    for (const l of res.bodyPrelude || []) lines.push(`${IND.repeat(childIndent + 1)}${l}`);
     lines.push(...api.childrenOf('out', childScope, childIndent + 1));
     lines.push(`${ind}    }`);
     lines.push(IND.repeat(depth) + ((d.closers && d.closers.out) || '}'));

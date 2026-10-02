@@ -18,12 +18,16 @@ function invoke(cmd, args) {
 export const api = {
   pickFolder: (title) => invoke('pick_folder', { title }),
   pickSaveFile: (title, defaultName) => invoke('pick_save_file', { title, defaultName }),
-  pickOpenFile: (title) => invoke('pick_open_file', { title }),
+  pickOpenFile: (title, ktsOnly) => invoke('pick_open_file', { title, ktsOnly: !!ktsOnly }),
   exportPlugin: (outDir, files) => invoke('export_plugin', { outDir, files }),
   readTextFile: (path) => invoke('read_text_file', { path }),
   writeTextFile: (path, content) => invoke('write_text_file', { path, content }),
   reveal: (path) => invoke('reveal_in_explorer', { path }),
   appDir: () => invoke('app_dir'),
+  /** 用系统浏览器打开 http(s) 链接（致谢页的「跳转 / 快捷注册」） */
+  openExternal: (url) => invoke('open_external', { url }),
+  /** 扫描 exe 旁边 scripts\ 里的 .kts（首次进入的示例插件组） */
+  scanScripts: () => invoke('scan_scripts', {}),
   /** 版本号（Rust 编译期常量，来自仓库根 VERSION → Cargo.toml） */
   appVersion: () => invoke('app_version', {}),
   appLicense: () => invoke('app_license', {}),
@@ -121,7 +125,7 @@ export async function saveProjectFile(project, suggestName) {
 
 export async function openProjectFile() {
   if (isTauri()) {
-    const p = await api.pickOpenFile('打开工程文件');
+    const p = await api.pickOpenFile('打开工程文件', false);
     if (!p) return { ok: false, error: '已取消' };
     const text = await api.readTextFile(p);
     return { ok: true, text, path: p };
@@ -137,4 +141,37 @@ export async function openProjectFile() {
     };
     input.click();
   });
+}
+
+const KTS_EXT = /\.kts$/i;
+
+/**
+ * 从代码还原：只能选 .kts 文件（选择器过滤 + 读完后校验后缀双保险）。
+ * @returns {{ok:boolean, text?:string, path?:string, error?:string}}
+ */
+export async function openKtsFile() {
+  if (isTauri()) {
+    const p = await api.pickOpenFile('选择要还原的 .kts 文件', true);
+    if (!p) return { ok: false, error: '已取消' };
+    if (!KTS_EXT.test(p)) return { ok: false, error: `只能导入 .kts 文件（你选的是：${basename(p)}）` };
+    const text = await api.readTextFile(p);
+    return { ok: true, text, path: p };
+  }
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.kts';
+    input.onchange = async () => {
+      const f = input.files && input.files[0];
+      if (!f) return resolve({ ok: false, error: '已取消' });
+      if (!KTS_EXT.test(f.name)) return resolve({ ok: false, error: `只能导入 .kts 文件（你选的是：${f.name}）` });
+      resolve({ ok: true, text: await f.text() });
+    };
+    input.click();
+  });
+}
+
+function basename(p) {
+  const parts = String(p).replace(/\\/g, '/').split('/');
+  return parts[parts.length - 1] || p;
 }

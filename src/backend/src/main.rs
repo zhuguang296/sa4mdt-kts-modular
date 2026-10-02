@@ -45,7 +45,7 @@ struct IFileDialogVtbl {
     add_ref: usize,         // 1
     release: unsafe extern "system" fn(*mut c_void) -> u32, // 2
     show: unsafe extern "system" fn(*mut c_void, HWND) -> HRESULT, // 3 (IModalWindow)
-    set_file_types: usize,      // 4
+    set_file_types: unsafe extern "system" fn(*mut c_void, u32, *const COMDLG_FILTERSPEC) -> HRESULT, // 4
     set_file_type_index: usize, // 5
     get_file_type_index: usize, // 6
     advise: usize,              // 7
@@ -70,6 +70,14 @@ struct IFileDialogVtbl {
     set_filter: usize,          // 26
 }
 
+/// COMDLG_FILTERSPEC（IFileDialog::SetFileTypes 的参数）。
+/// 每个规格 = 一个显示名 + 一组扩展名匹配（如 `*.kts`）。
+#[repr(C)]
+struct COMDLG_FILTERSPEC {
+    psz_name: PCWSTR,
+    psz_spec: PCWSTR,
+}
+
 struct IFileDialog {
     raw: *mut c_void,
 }
@@ -90,6 +98,13 @@ impl IFileDialog {
 
     unsafe fn set_file_name(&self, name: PCWSTR) {
         ((*self.vtbl()).set_file_name)(self.raw, name);
+    }
+
+    /// 给对话框加一个「文件类型」过滤器（如只显示 `*.kts`）。
+    /// specs 里的 PCWSTR 必须活得比这次调用久（局部 Vec<u16> 即可）。
+    unsafe fn set_file_types(&self, name: PCWSTR, spec: PCWSTR) {
+        let fs = COMDLG_FILTERSPEC { psz_name: name, psz_spec: spec };
+        ((*self.vtbl()).set_file_types)(self.raw, 1, &fs);
     }
 
     /// 返回 Some(raw IShellItem*) 表示用户确认；None 表示取消。
@@ -259,13 +274,20 @@ fn dialog_pick_folder(title: String, owner: HWND) -> Option<String> {
     })
 }
 
-fn dialog_pick_open_file(title: String, owner: HWND) -> Option<String> {
+/// 打开文件对话框。`only_kts` 为 true 时只显示 `*.kts`（从代码还原用）；
+/// false 时显示所有文件（打开 .saproj 工程用）。
+fn dialog_pick_open_file(title: String, owner: HWND, only_kts: bool) -> Option<String> {
     run_dialog(move || {
         let _com = ComGuard::new();
         let dlg = create_dialog(&FileOpenDialog, &IID_IFILE_OPEN_DIALOG)?;
         unsafe {
             let t = to_wide(&title);
             dlg.set_options(FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST | FOS_FORCEFILESYSTEM);
+            if only_kts {
+                let fname = to_wide("KTS 脚本 (*.kts)");
+                let fspec = to_wide("*.kts");
+                dlg.set_file_types(fname.as_ptr(), fspec.as_ptr());
+            }
             dlg.set_title(t.as_ptr());
             if dlg.show(owner) < 0 {
                 dlg.release();
@@ -414,10 +436,11 @@ async fn pick_save_file(title: String, default_name: String, window: tauri::Wind
 }
 
 #[tauri::command]
-async fn pick_open_file(title: String, window: tauri::Window) -> Option<String> {
+async fn pick_open_file(title: String, kts_only: Option<bool>, window: tauri::Window) -> Option<String> {
+    let only_kts = kts_only.unwrap_or(false);
     let hwnd = resolve_owner(window_hwnd(&window));
     tauri::async_runtime::spawn_blocking(move || {
-        dialog_pick_open_file(title, hwnd_from_i64(hwnd))
+        dialog_pick_open_file(title, hwnd_from_i64(hwnd), only_kts)
     })
     .await
     .ok()
@@ -518,6 +541,73 @@ fn app_dir() -> String {
     std::env::current_dir()
         .map(|d| d.to_string_lossy().into_owned())
         .unwrap_or_default()
+}
+
+/// 用系统默认浏览器打开一个 http(s) 链接（第 15 轮：设置页的致谢跳转）。
+///
+/// 只允许 http/https —— 这个命令的参数来自界面，绝不能变成「执行任意命令」的入口。
+/// `cmd /C start` 是 Windows 上打开默认浏览器最稳的方式（不依赖 ShellExecute 绑定）。
+#[tauri::command]
+fn open_external(url: String) -> Result<(), String> {
+    let u = url.trim().to_string();
+    if !(u.starts_with("https://") || u.starts_with("http://")) {
+        return Err(format!("只允许打开 http/https 链接：{u}"));
+    }
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "", &u])
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("打开浏览器失败 {u}: {e}"))
+}
+
+/// 列出 exe 旁边 `scripts\` 目录里的 .kts 脚本（第 15 轮：首次进入的示例插件组）。
+///
+/// 返回 `{ dir, files: [{ name, path, size }] }`。
+/// 目录不存在时返回空列表（不是错误）—— 用户机器上没装服务器脚本很常见，
+/// 界面据此安静地跳过示例，不弹报错。
+#[derive(serde::Serialize)]
+struct SampleFile {
+    name: String,
+    path: String,
+    size: u64,
+}
+
+#[derive(serde::Serialize)]
+struct ScriptScan {
+    dir: String,
+    exists: bool,
+    files: Vec<SampleFile>,
+}
+
+#[tauri::command]
+fn scan_scripts() -> ScriptScan {
+    let base = app_dir();
+    let dir = std::path::Path::new(&base).join("scripts");
+    let dir_str = dir.to_string_lossy().into_owned();
+    let mut files: Vec<SampleFile> = Vec::new();
+    if dir.is_dir() {
+        collect_kts(&dir, &mut files, 0);
+    }
+    // 体积小的排前面（示例读起来轻松），最多给 40 个，界面再筛
+    files.sort_by(|a, b| a.size.cmp(&b.size).then_with(|| a.name.cmp(&b.name)));
+    files.truncate(40);
+    ScriptScan { dir: dir_str, exists: dir.is_dir(), files }
+}
+
+/// 递归收 .kts（深度上限 3，避免扫到奇怪的深层目录）
+fn collect_kts(dir: &std::path::Path, out: &mut Vec<SampleFile>, depth: u32) {
+    if depth > 3 { return; }
+    let rd = match std::fs::read_dir(dir) { Ok(r) => r, Err(_) => return };
+    for e in rd.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            collect_kts(&p, out, depth + 1);
+        } else if p.extension().map(|x| x.eq_ignore_ascii_case("kts")).unwrap_or(false) {
+            let size = e.metadata().map(|m| m.len()).unwrap_or(0);
+            let name = p.file_name().map(|x| x.to_string_lossy().into_owned()).unwrap_or_default();
+            out.push(SampleFile { name, path: p.to_string_lossy().into_owned(), size });
+        }
+    }
 }
 
 /// 版本号来自编译期的 Cargo 包版本（单一来源 = 仓库根目录的 VERSION 文件，
@@ -778,11 +868,14 @@ fn is_fullscreen(window: tauri::Window) -> bool {
 // 用户正常在询问框上思考多久都不会被这个计时影响：报到的动作是在**弹框之前**
 // 完成的，计时早就在那时取消了。
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 static CLOSE_CONFIRMED: AtomicBool = AtomicBool::new(false);
 // 前端已经接手这次关闭（准备弹询问框了）
 static CLOSE_ACKED: AtomicBool = AtomicBool::new(false);
+// 「第几次关窗请求」。每次点 X 都 +1，看门狗只认自己那一代，
+// 上一代到点也不会动手 —— 详见下面 on_window_event 里的说明。
+static CLOSE_GEN: AtomicU64 = AtomicU64::new(0);
 
 /// 前端一进关窗处理流程就调这个报到，用来取消看门狗。
 #[tauri::command]
@@ -807,6 +900,8 @@ fn main() {
             write_text_file,
             reveal_in_explorer,
             app_dir,
+            open_external,
+            scan_scripts,
             app_version,
             app_license,
             app_author,
@@ -834,6 +929,8 @@ fn main() {
 
                 api.prevent_close();
                 CLOSE_ACKED.store(false, Ordering::SeqCst);
+                // 记下这是第几代关窗请求。看门狗只认自己这一代，见下。
+                let gen = CLOSE_GEN.fetch_add(1, Ordering::SeqCst) + 1;
 
                 // 让前端弹询问框。前端问完会回调 confirm_close。
                 // eval 是异步的，这里不能等它 —— prevent_close 已经把这次关闭
@@ -844,14 +941,32 @@ fn main() {
 
                 // 看门狗：前端没在 2 秒内报到就认为它坏了，放行关闭。
                 // （只是防止窗口关不掉，不是催用户 —— 报到发生在弹框之前。）
+                //
+                // 关键：**只让最新一代的看门狗有权动手**。
+                // 以前每次点 X 都新起一个线程、上一代不会取消，于是出现这种情况：
+                // 用户点 X 弹出询问框 → 又点一次 X（或系统重发 WM_CLOSE）→
+                // 第一代看门狗到点，把**正在等用户选择**的窗口 destroy 掉，
+                // 询问框直接消失、用户莫名其妙被关掉程序。
+                // 而且新一代请求会把 CLOSE_ACKED 重置为 false，可前端的
+                // onCloseRequested() 有防重入闩（closing），第二次进来直接返回、
+                // 不会重新报到 —— 于是一个**活着的前端**也会被判超时。
+                // 用代号一比，这两类误杀都没了：旧线程看到代号变了就安静退出。
                 let win = window.clone();
                 std::thread::spawn(move || {
                     for _ in 0..40 {                       // 40 × 50ms = 2s
                         std::thread::sleep(std::time::Duration::from_millis(50));
+                        if CLOSE_GEN.load(Ordering::SeqCst) != gen {
+                            return;                        // 已经被更新的一次请求取代
+                        }
                         if CLOSE_ACKED.load(Ordering::SeqCst)
                             || CLOSE_CONFIRMED.load(Ordering::SeqCst) {
                             return;                        // 前端活着，交给它处理
                         }
+                    }
+                    // 再确认一次：这 2 秒里没有更新的关窗请求，也没人确认关闭
+                    if CLOSE_GEN.load(Ordering::SeqCst) != gen
+                        || CLOSE_CONFIRMED.load(Ordering::SeqCst) {
+                        return;
                     }
                     eprintln!("[close-guard] 前端未响应关窗询问，强制关闭");
                     let _ = win.destroy();

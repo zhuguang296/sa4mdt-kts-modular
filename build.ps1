@@ -5,6 +5,9 @@
 #           powershell -File build.ps1 -SkipTests
 #           powershell -File build.ps1 -Clean
 #           powershell -File build.ps1 -Installer     (also build the NSIS setup)
+#           powershell -File build.ps1 -Release       (release: implies
+#                                                      -Installer, then archives
+#                                                      into ktsbb\<version>\)
 #
 # NOTE: this file is intentionally ASCII-only. Windows PowerShell 5.1 reads
 # .ps1 files as ANSI unless they carry a UTF-8 BOM, so non-ASCII text here
@@ -14,8 +17,14 @@
 param(
   [switch]$SkipTests,
   [switch]$Clean,
-  [switch]$Installer
+  [switch]$Installer,
+  # -Release: publish-ready build. Implies -Installer and, on success, archives
+  # the exe + installer + that version's .MD into ktsbb\<version>\.
+  # Only use this when the user actually asked for a release.
+  [switch]$Release
 )
+
+if ($Release) { $Installer = $true }
 
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
@@ -152,6 +161,11 @@ if (-not $SkipTests -and $node) {
   # Skips itself when tests/_api has not been generated (see tests/dump-api.ps1).
   node tests/verify-api.js
   if ($LASTEXITCODE -ne 0) { Die "API cross-check failed" }
+
+  # The team-attribute dropdown must match Rules$TeamRule field-for-field.
+  # A wrong field name or type only shows up as a Kotlin compile error in-game.
+  node tests/team-fields.js
+  if ($LASTEXITCODE -ne 0) { Die "team attribute field check failed" }
 
   Ok "all tests passed"
 } else {
@@ -321,6 +335,50 @@ if ($Installer) {
       Warn "no installer produced"
     }
   }
+}
+
+# ---------- 8. Archive the release (-Release) ----------
+#
+# Layout the user asked for: every release lives under
+#
+#     F:\deepseek\mdt\ktsbb\<version>\
+#         <version>.MD                          <- that version's notes
+#         KTS-Plugin-Workshop.exe               <- portable build
+#         KTS-Plugin-Workshop_<version>_x64-setup.exe   <- NSIS installer
+#
+# Old versions are never overwritten (the folder is per-version). The .MD is
+# written by hand, so if it is missing we only warn - the binaries are still
+# archived, and the notes can be dropped in afterwards.
+if ($Release) {
+  Step 8 "Archiving release to ktsbb"
+
+  $version = (Get-Content (Join-Path $root 'VERSION') -Raw).Trim()
+  $bbRoot = Join-Path (Split-Path $root -Parent) 'ktsbb'
+  $bbDir = Join-Path $bbRoot $version
+  New-Item -ItemType Directory -Path $bbDir -Force | Out-Null
+
+  Copy-Item (Join-Path $root 'KTS-Plugin-Workshop.exe') $bbDir -Force
+  Ok "KTS-Plugin-Workshop.exe"
+
+  $setup = Get-ChildItem (Join-Path $root 'src\backend\target\release\bundle\nsis') -Filter '*.exe' -ErrorAction SilentlyContinue |
+           Where-Object { $_.Name -like "*$version*" } |
+           Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  if ($setup) {
+    Copy-Item $setup.FullName $bbDir -Force
+    Ok $setup.Name
+  } else {
+    Warn "no installer found for $version - run with -Installer"
+  }
+
+  $notes = Join-Path $bbDir "$version.MD"
+  if (Test-Path $notes) {
+    Ok "$version.MD"
+  } else {
+    Warn "$version.MD is missing from $bbDir"
+    Warn "the notes file is written by hand; add it before handing this out"
+  }
+
+  Ok "release folder: $bbDir"
 }
 
 Write-Host "`nDone. Run KTS-Plugin-Workshop.exe to start." -ForegroundColor Green

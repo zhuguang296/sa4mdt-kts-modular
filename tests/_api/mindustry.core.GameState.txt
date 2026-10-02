@@ -1,0 +1,36 @@
+Compiled from "GameState.java"
+public class mindustry.core.GameState {
+  public int wave;
+  public float wavetime;
+  public double tick;
+  public long updateId;
+  public boolean gameOver;
+  public boolean afterGameOver;
+  public boolean won;
+  public int serverTps;
+  public mindustry.maps.Map map;
+  public mindustry.game.Rules rules;
+  public mindustry.game.GameStats stats;
+  public mindustry.game.MapMarkers markers;
+  public mindustry.type.MapLocales mapLocales;
+  public mindustry.world.blocks.Attributes envAttrs;
+  public mindustry.game.Teams teams;
+  public mindustry.mod.DataManager data;
+  public int enemies;
+  public mindustry.maps.Map playtestingMap;
+  public mindustry.core.GameState();
+  public mindustry.gen.Unit boss();
+  public void set(mindustry.core.GameState$State);
+  public boolean hasSpawns();
+  public boolean isCampaign();
+  public boolean hasSector();
+  public mindustry.type.Sector getSector();
+  public mindustry.type.Planet getPlanet();
+  public boolean isEditor();
+  public boolean isPaused();
+  public boolean isPlaying();
+  public boolean isGame();
+  public boolean isMenu();
+  public boolean is(mindustry.core.GameState$State);
+  public mindustry.core.GameState$State getState();
+}

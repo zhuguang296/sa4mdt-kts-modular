@@ -13,6 +13,11 @@
     <div class="tb-title">KTS 插件工坊<small>拖控件 → 导出 .kts</small></div>
 
     <div class="tb-group">
+      <button data-act="home" title="回到主界面（选插件组）">主页</button>
+    </div>
+    <div class="tb-sep"></div>
+
+    <div class="tb-group">
       <button data-act="newProject" title="清空并重新开始">新建</button>
       <button data-act="open" title="打开一个 .saproj 工程文件">打开</button>
       <button data-act="save" title="保存为 .saproj 工程文件（Ctrl+S）">保存</button>
@@ -69,7 +74,9 @@
     </div>
 
     <div id="right">
-      <div id="inspector"></div>
+      <!-- 第 15 轮：右栏改成「插件文件管理器」（列出本插件组的 .kts 画布）。
+           原来的参数面板搬进弹窗（点控件时弹出来看/改参数）。 -->
+      <div id="filemgr"></div>
     </div>
   </div>
 
@@ -78,6 +85,26 @@
 
 <!-- 设置页：整窗替换主界面，由 js/settingspage.js 填充 -->
 <div id="settings" hidden></div>
+
+<!-- 首页（主界面）：启动时进入，由 js/home.js 填充 -->
+<div id="home" hidden></div>
+
+<!-- 控件参数弹窗（第 15 轮）：点画布上的控件就弹出来看/改参数。
+     里面那个 #inspector 就是原来的右侧参数面板 —— 表单逻辑一行没改，
+     只是换了个位置显示。 -->
+<div id="inspDialog" hidden>
+  <div class="inspdlg-mask"></div>
+  <div class="inspdlg-box">
+    <div class="inspdlg-head">
+      <span class="inspdlg-title">控件设置</span>
+      <button class="inspdlg-close" title="关闭（Esc）">×</button>
+    </div>
+    <div class="inspdlg-body"><div id="inspector"></div></div>
+    <div class="inspdlg-foot">
+      <button class="btn primary inspdlg-ok">完成</button>
+    </div>
+  </div>
+</div>
 
 <div id="modal" hidden></div>
 <div id="fatal" hidden></div>

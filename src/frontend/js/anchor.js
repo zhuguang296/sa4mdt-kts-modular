@@ -4,6 +4,12 @@
 //   //@2 28 28         <- 控件编码 2，画布坐标 x=80 y=80（base36）
 //   //@1x 1c 1c 1      <- 末位是嵌套层级（0 层省略不写）
 //
+// v1.2.0（第 14 轮）起，锚点行尾可以带参数段，做到「完全恢复」：
+//   //@2 28 28 | text=%E6%AC%A2%E8%BF%8E&msgType=MsgType.Message
+//   -- 参数段以 ` | ` 起头，多个 key=value 用 `&` 分隔；
+//   -- value 做 encodeURIComponent（可含空格 / 中文 / 特殊字符，解析时还原）；
+//   -- 只写「非默认值」参数（和控件定义里的 default 不同才写），默认值不占空间。
+//
 // 格式约束：
 //   * 控件默认只写**编码**（`action.broadcast` -> `2`）。表在 catalog/codes.js。
 //     表里没有的控件写成 `?完整key`。
@@ -24,7 +30,7 @@ import { defCode, defFromCode } from './catalog/codes.js';
 const RE1_FILE = /^\s*\/\/\s*@sa:file\s+(.*)$/;
 const RE1_NODE = /^\s*\/\/\s*@sa:node\s+(.*)$/;
 
-// v2（紧凑）：`//@<编码> <x> <y> [层级]`
+// v2（紧凑）：`//@<编码> <x> <y> [层级] [| 参数段]`
 //
 // 编码有两种写法：
 //   //@2 bo 28 1                表内控件 —— 1~3 位 base36 短码
@@ -34,7 +40,11 @@ const RE1_NODE = /^\s*\/\/\s*@sa:node\s+(.*)$/;
 // （`fix` 和 `42` 恰好都是合法 base36）会被当成锚点。
 // `?` 也不是装饰 —— 有了它，才能在保住这条防误判的同时，
 // 让「新控件忘了加进 codes.js」仍然能正常往返。
-const RE2_NODE = /^\s*\/\/@(?:\?([A-Za-z_][A-Za-z0-9_.]*)|([0-9a-z]{1,3}))\s+(-?[0-9a-z]+)\s+(-?[0-9a-z]+)(?:\s+(\d+))?\s*$/;
+//
+// 参数段（可选）：` | k1=v1&k2=v2`。v 是 encodeURIComponent 过的，
+// 所以不包含 `|` / `&` / 空白，正则匹配稳定；`//@kts 1.2.0` 之类的
+// 识别标记仍然匹配不上（点号不在 base36 里）。
+const RE2_NODE = /^\s*\/\/@(?:\?([A-Za-z_][A-Za-z0-9_.]*)|([0-9a-z]{1,3}))\s+(-?[0-9a-z]+)\s+(-?[0-9a-z]+)(?:\s+(\d+))?(?:\s+\|\s+([^|]*))?$/;
 
 /** 坐标 -> base36（画布坐标恒为整数） */
 export function encodeXY(n) {
@@ -65,17 +75,40 @@ function fullDef(token) {
 /** 判断一段文本是不是本工具导出的（导入前先看一眼，好给出人话提示） */
 export function looksLikeOurKts(text) {
   if (/@sa:file\s/.test(text) || /@sa:node\s/.test(text)) return true;
+  // v1.2.0+：文件底部识别块的固定标记（//@kts 1.2.0）。只认带点号的版本串，
+  // 避免和 //@TODO 之类的手写注释混淆。
+  if (/^\s*\/\/@kts\s+\d+\.\d+\.\d+\s*$/m.test(text)) return true;
   // 表内短码，或 `?完整key`
   return /^\s*\/\/@(?:\?[A-Za-z_][A-Za-z0-9_.]*|[0-9a-z]{1,3})\s+-?[0-9a-z]+\s+-?[0-9a-z]+/m.test(text);
 }
 
+/** 解析锚点里的参数段（`k1=v1&k2=v2`）为 props 对象。解析失败返回 null。 */
+function parseAnchorParams(paramStr) {
+  if (!paramStr || !paramStr.trim()) return null;
+  const out = {};
+  for (const seg of paramStr.split('&')) {
+    if (!seg) continue;
+    const eq = seg.indexOf('=');
+    if (eq < 0) continue;
+    const k = seg.slice(0, eq);
+    let v;
+    try { v = decodeURIComponent(seg.slice(eq + 1)); } catch (e) { v = seg.slice(eq + 1); }
+    // 对象值（rules 等）编码时带 json: 前缀，这里还原回对象
+    if (v.indexOf('json:') === 0) {
+      try { v = JSON.parse(v.slice(5)); } catch (e) { /* 还原不了就当字符串留 */ }
+    }
+    out[k] = v;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 /**
- * 解析一个 .kts 文本，还原出画布模型（锚点信息 + 嵌套关系）。
- * v1 / v2 两种锚点都支持。
+ * 解析一个 .kts 文本，还原出画布模型（锚点信息 + 嵌套关系 + 参数）。
+ * v1 / v2（含参数段）两种锚点都支持。
  * @returns {{ok:boolean, canvas?, error?, unknown?:string[], warning?:string}}
  */
 export function parseKts(text) {
-  const nodeLines = []; // { depth, def, x, y }
+  const nodeLines = []; // { depth, def, x, y, params }
 
   for (const line of text.split('\n')) {
     // ---- 老格式 ----
@@ -85,7 +118,7 @@ export function parseKts(text) {
       const info = parseKv(m1[1]);
       if (!info.def) continue;
       const ind = (line.match(/^(\s*)/) || ['', ''])[1].replace(/\t/g, '    ').length;
-      nodeLines.push({ depth: ind / 4, def: fullDef(info.def), x: Number(info.x) || 0, y: Number(info.y) || 0 });
+      nodeLines.push({ depth: ind / 4, def: fullDef(info.def), x: Number(info.x) || 0, y: Number(info.y) || 0, params: null });
       continue;
     }
 
@@ -100,6 +133,7 @@ export function parseKts(text) {
         def,
         x: decodeXY(m2[3]),
         y: decodeXY(m2[4]),
+        params: parseAnchorParams(m2[6]),
       });
     }
   }
@@ -118,7 +152,7 @@ export function parseKts(text) {
       nodes.push(null);
       continue;
     }
-    const node = { id: newId('n'), def: nl.def, x: nl.x, y: nl.y, props: {} };
+    const node = { id: newId('n'), def: nl.def, x: nl.x, y: nl.y, props: nl.params || {} };
     canvas.nodes.push(node);
     nodes.push(node);
   }
@@ -148,7 +182,9 @@ export function parseKts(text) {
     ok: true,
     canvas,
     unknown,
-    warning: '只还原了功能块的位置和嵌套关系，具体填的参数需要你重新确认（导出的文件里没有保存表单内容）',
+    // 第 14 轮起，锚点里写了非默认参数（v1.2.0 新导出的文件）。
+    // 老文件（没有参数段）仍只有位置和嵌套，参数需要重新填。
+    warning: '这是新格式文件：位置、嵌套和参数都已还原；老文件则只还原位置和嵌套，参数需要重新确认',
   };
 }
 
@@ -163,10 +199,38 @@ function guessPort(pd, parent, canvas) {
 
 /**
  * 节点锚点。
- * @param {{def:string, x:number, y:number}} node
+ * @param {{def:string, x:number, y:number, props?:object}} node
  * @param {number} [depth] 嵌套层级；0 层省略不写，省 2 个字节
+ * @param {object} [def] 控件定义（有 props 定义时，用它判定「非默认值」）
  */
-export function nodeAnchor(node, depth = 0) {
+export function nodeAnchor(node, depth = 0, def = null) {
   const head = `//@${defCode(node.def)} ${encodeXY(node.x)} ${encodeXY(node.y)}`;
-  return depth > 0 ? `${head} ${depth}` : head;
+  const pos = depth > 0 ? `${head} ${depth}` : head;
+  const params = nonDefaultParams(node, def);
+  return params ? `${pos} | ${params}` : pos;
+}
+
+/**
+ * 收集「非默认值」参数，编码成锚点参数段（`k1=v1&k2=v2`，v 做 URI 编码）。
+ * 没设过的键不写（等于没动过）；设了但和 default 相同的也不写（省空间）。
+ * 对象值（rules 等）带 `json:` 前缀，保证解析时能完整还原成对象。
+ */
+function nonDefaultParams(node, def) {
+  const props = node.props || {};
+  const keys = Object.keys(props);
+  if (!keys.length) return null;
+  const out = [];
+  for (const k of keys) {
+    const v = props[k];
+    if (v === undefined || v === null) continue;
+    let s;
+    if (typeof v === 'object') s = 'json:' + JSON.stringify(v);
+    else s = String(v);
+    if (def && def.props) {
+      const p = def.props.find(x => x.key === k);
+      if (p && p.default !== undefined && String(p.default) === s) continue; // 和默认一致，不写
+    }
+    out.push(`${k}=${encodeURIComponent(s)}`);
+  }
+  return out.length ? out.join('&') : null;
 }

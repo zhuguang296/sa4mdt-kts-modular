@@ -65,8 +65,12 @@ export class CanvasView {
     this.drag = null;        // 拖动节点
     this.panning = null;     // 平移画布
     this.linking = null;     // 拉线
+    this.snapTarget = null;  // 拉线时吸附到的圆圈（第 15 轮：两端精准对准）
+    this.lastConnectReason = ''; // 上一次报过的连接失败原因（避免 mousemove 刷屏）
     this.hoverNode = null;
     this.draggingDef = '';   // 正在从控件库拖入的控件 key
+    this.onConnectError = null;  // 连线失败回调（右侧面板展示原因）
+    this.onOpenInspector = null; // 双击控件 → 打开参数弹窗（第 17 轮）
     this.build();
     this.bindEvents();
   }
@@ -214,6 +218,8 @@ export class CanvasView {
       let el = existing.get(node.id);
       if (!el) {
         el = this.createNodeEl(node);
+        // 新节点播放「弹入」动画（CSS 只用独立 scale 属性，不碰 inline transform）
+        el.classList.add('cv-new');
         this.nodesLayer.appendChild(el);
       }
       el.dataset.id = node.id;
@@ -221,12 +227,42 @@ export class CanvasView {
       el.classList.toggle('selected', sel.has(node.id));
       this.updateNodeContent(el, node, canvas);
     }
-    for (const [id, el] of existing) if (!keep.has(id)) el.remove();
+    // 删除动画：加 .cv-out 播放缩小淡出，动画结束（140ms）后再真正移除 DOM。
+    // 延迟移除期间节点已从 store 删掉，只是残留一个正在消失的视觉层。
+    // 已标记过 .cv-out 的元素不重复处理（否则多次 render 会叠定时器）。
+    const leaving = [];
+    for (const [id, el] of existing) if (!keep.has(id) && !el.classList.contains('cv-out')) leaving.push(el);
+    for (const el of leaving) {
+      el.classList.add('cv-out');
+      setTimeout(() => { if (el.isConnected) el.remove(); }, 160);
+    }
   }
 
+  /**
+   * 造一张节点卡片的骨架。
+   *
+   * 第 15 轮关键修正：圆点必须**按控件自己的端口定义**来画。
+   * 以前不管什么控件都硬画一个入口 + 一个出口 —— 那些其实没有入口的控件
+   * （比如各种「当……发生时」事件）看上去也有入口圆圈，可用户拖过去时
+   * 系统又查不到这个端口，于是「拖到圆圈上什么都不发生、也不变红」
+   * （用户报的第 4 条）。现在画得出就一定认得出。
+   */
   createNodeEl(node) {
     const el = document.createElement('div');
     el.className = 'cv-node';
+    const d = defOf(node.def);
+    const inPorts = (d && d.inPorts) || [];
+    const outPorts = (d && d.outPorts) || [];
+    const inHtml = inPorts.length
+      ? '<div class="cv-port cv-port-in" data-port="in" title="入口"></div>' : '';
+    // 多个出口（「如果……就 / 否则」）上下错开，各自带 data-port，方便精准取位
+    const outHtml = outPorts.map((p, i) => {
+      const off = outPorts.length > 1 ? (i === 0 ? -1 : 1) * 16 : 0;
+      const style = off ? ` style="margin-top:${off * 2}px"` : '';
+      const label = outPorts.length > 1 ? `（${p.label || p.id}）` : '';
+      return `<div class="cv-port cv-port-out" data-port="${esc(p.id)}"`
+        + ` title="拖这里连到下一个控件${label}"${style}></div>`;
+    }).join('');
     el.innerHTML = `
       <div class="cv-node-head">
         <span class="cv-node-cat"></span>
@@ -234,8 +270,7 @@ export class CanvasView {
         <button class="cv-node-del" title="删除">×</button>
       </div>
       <div class="cv-node-body"></div>
-      <div class="cv-port cv-port-in" title="入口"></div>
-      <div class="cv-port cv-port-out" title="拖这里连到下一个控件"></div>`;
+      ${inHtml}${outHtml}`;
     return el;
   }
 
@@ -257,7 +292,8 @@ export class CanvasView {
       // 参数摘要
     const rows = [];
     if (d) {
-      if (d.codeHint) rows.push({ k: '生成', v: d.codeHint, cls: 'code' });
+      // 第 15 轮：节点卡片上不再显示「生成：xxx」那行代码提示（用户要求删掉），
+      // 只留用户自己填的参数。代码提示仍留在控件库卡片和右侧参数面板里。
       for (const p of d.props || []) {
         if (p.type === 'rules') {
           const n = ((node.props && node.props.rules) || []).length;
@@ -276,6 +312,17 @@ export class CanvasView {
         rows.push({ k: p.label, v: String(v), cls: (node.props && node.props[p.key] != null && node.props[p.key] !== '') ? '' : 'muted' });
       }
     }
+    // 第 15 轮：没有参数可显示时，**整块 body 收起来**。
+    // 以前不管有没有内容都留着 padding，卡片标题下面就是一条空白带，
+    // 看着像坏了（用户反馈第 1 条）。现在没内容 = 卡片只有标题那一行。
+    if (!rows.length) {
+      body.hidden = true;
+      body.innerHTML = '';
+      el.classList.add('no-body');
+      return;
+    }
+    body.hidden = false;
+    el.classList.remove('no-body');
     body.innerHTML = rows.slice(0, 6).map(r =>
       `<div class="cv-row"><span class="cv-k">${esc(r.k)}</span><span class="cv-v ${r.cls || ''}">${esc(truncate(r.v, 34))}</span></div>`
     ).join('') + (rows.length > 6 ? `<div class="cv-row more">…还有 ${rows.length - 6} 项</div>` : '');
@@ -342,12 +389,38 @@ export class CanvasView {
     }
   }
 
+  /**
+   * 端口（圆圈）中心的世界坐标。
+   *
+   * 第 15 轮改为**优先读真实 DOM 位置**：卡片的实际高度由 CSS 决定
+   * （字号、换行、行数上限都会影响），用 HEAD_H + 行数×ROW_H 估算出来的
+   * y 和圆圈真正所在的位置能差好几个像素 —— 连线就会「对不准圆圈」。
+   * 现在直接量圆圈的屏幕矩形再换算回世界坐标，连线两端天然重合。
+   */
   portPos(node, which, portId) {
     const d = defOf(node.def);
+    const el = this.nodesLayer.querySelector(`[data-id="${node.id}"]`);
+    if (el) {
+      // 用 data-port 精准定位：多出口时也能一次取对（不再靠第几个圆圈猜）
+      const sel = which === 'in' ? '.cv-port-in' : '.cv-port-out';
+      let portEl = null;
+      if (portId) portEl = el.querySelector(`${sel}[data-port="${portId}"]`);
+      if (!portEl) portEl = el.querySelector(sel);
+      if (portEl) {
+        const r = portEl.getBoundingClientRect();
+        if (r.width || r.height) {
+          const vr = this.viewport.getBoundingClientRect();
+          return {
+            x: (r.left + r.width / 2 - vr.left - this.panX) / this.zoom,
+            y: (r.top + r.height / 2 - vr.top - this.panY) / this.zoom,
+          };
+        }
+      }
+    }
+    // 回退：DOM 还没渲染出来时按估算值算
     const h = this.nodeHeight(d);
     const y = node.y + h / 2;
     const x = which === 'in' ? node.x : node.x + NODE_W;
-      // 条件的 then/else 出口分上下
     let off = 0;
     if (which === 'out' && d && (d.outPorts || []).length > 1) {
       const idx = (d.outPorts || []).findIndex(p => p.id === portId);
@@ -422,14 +495,19 @@ export class CanvasView {
         return;
       }
 
-      // 从出口拉线
+      // 从出口拉线。端口 id 直接读圆点上的 data-port —— 多出口（就 / 否则）
+      // 时才能从正确的那个出口开始，而不是永远拿第一个。
       if (portEl && portEl.classList.contains('cv-port-out')) {
         e.preventDefault();
         const id = nodeEl.dataset.id;
         const node = store.activeCanvas().nodes.find(n => n.id === id);
         const d = defOf(node.def);
         const ports = (d.outPorts || []).map(p => p.id);
-        this.linking = { fromId: id, fromPort: ports[0] || 'out', ports, pos: this.portPos(node, 'out', ports[0]) };
+        const startPort = portEl.dataset.port || ports[0] || 'out';
+        this.linking = {
+          fromId: id, fromPort: startPort, ports,
+          pos: this.portPos(node, 'out', startPort),
+        };
         this.tempEdge.style.display = '';
         return;
       }
@@ -439,7 +517,7 @@ export class CanvasView {
         e.preventDefault();
         const id = nodeEl.dataset.id;
         const node = store.activeCanvas().nodes.find(n => n.id === id);
-        this.linking = { toId: id, toPort: 'in', pos: this.portPos(node, 'in') };
+        this.linking = { toId: id, toPort: 'in', pos: this.portPos(node, 'in', 'in') };
         this.tempEdge.style.display = '';
         return;
       }
@@ -482,6 +560,8 @@ export class CanvasView {
           store.store.selection = [id];
         }
         this.render();
+        // 第 17 轮：单击只**选中**（高亮 + 允许拖动），不弹参数窗。
+        // 弹窗改由双击触发（见下面的 dblclick）——拖控件时老是弹窗很烦。
         this.onSelect && this.onSelect(id);
 
         const start = this.toWorld(e.clientX, e.clientY);
@@ -490,6 +570,20 @@ export class CanvasView {
         this.drag = { start, moving, moved: false };
         e.preventDefault();
       }
+    });
+
+    // 第 17 轮：**双击**控件卡片才弹出参数窗（单击只选中）。
+    // 双击空白处 = 适应视野（顺手给的一个便利，和多数画布工具一致）。
+    vp.addEventListener('dblclick', (e) => {
+      const nodeEl = e.target.closest('.cv-node');
+      if (!nodeEl) { this.fit(); return; }
+      if (e.target.closest('.cv-port') || e.target.closest('.cv-node-del')) return;
+      e.preventDefault();
+      const id = nodeEl.dataset.id;
+      store.store.selection = [id];
+      this.render();
+      this.onSelect && this.onSelect(id);
+      this.onOpenInspector && this.onOpenInspector(id);
     });
 
     window.addEventListener('mousemove', (e) => {
@@ -515,11 +609,15 @@ export class CanvasView {
         return;
       }
       if (this.linking) {
-        const w = this.toWorld(e.clientX, e.clientY);
+        const hit = this.highlightDropTarget(e);
+        // 第 15 轮：靠近可连接的圆圈时，临时线的末端**吸附到圆心**，
+        // 让「松手就连到这里」一眼可见；没靠近就跟着鼠标走。
+        let w = this.toWorld(e.clientX, e.clientY);
+        if (hit && hit.ok) w = { x: hit.x, y: hit.y };
+        else if (this.snapTarget) w = { x: this.snapTarget.x, y: this.snapTarget.y };
         const from = this.linking.fromId ? this.linking.pos : w;
         const to = this.linking.toId ? this.linking.pos : w;
         this.tempEdge.setAttribute('d', this.linking.fromId ? bezier(from, to) : bezier(to, from));
-        this.highlightDropTarget(e);
         return;
       }
     });
@@ -563,11 +661,19 @@ export class CanvasView {
       }
 
       if (this.linking) {
-        const target = this.findPortAt(e.clientX, e.clientY);
+        // 优先用拖动过程中吸附到的圆圈：用户已经看到「吸附在这里」，
+        // 松手就应该连到它，而不是再按鼠标最后几像素重新判定一次。
+        const near = this.findPortAt(e.clientX, e.clientY);
+        const st = this.snapTarget;
+        const target = st
+          ? { id: st.id, dir: st.dir, port: st.port }
+          : (near ? { id: near.id, dir: near.dir, port: near.port } : null);
         const lk = this.linking;
         this.linking = null;
+        this.snapTarget = null;
         this.tempEdge.style.display = 'none';
         this.clearHighlights();
+        this.onConnectError && this.onConnectError('');
         if (target) {
           const canvas = store.activeCanvas();
           let from, to;
@@ -583,6 +689,8 @@ export class CanvasView {
           const check = M.checkConnect(canvas, from, to, { defOf });
           if (!check.ok) {
             this.toast(check.reason, 'error');
+            // 右侧面板也要显示为什么不能连（用户第 3 条要求）
+            this.onConnectError && this.onConnectError(check.reason);
           } else if (lk.fromId && (fd.outPorts || []).length > 1) {
             // 多出口控件：询问走哪个口
             this.choosePort(lk.fromId, target).then((port) => {
@@ -653,16 +761,31 @@ export class CanvasView {
     });
   }
 
+  /**
+   * 拖线过程中：判断当前鼠标下的端口能不能接。
+   *
+   * 第 15 轮修两个问题（用户第 4、5 条）：
+   *   1. 能接 → 绿色高亮；不能接 → **红色高亮 + 立刻弹出原因**
+   *      （不再因为「没命中端口」就什么都不做，用户看不到任何反馈）。
+   *   2. 鼠标靠近某个圆圈时，临时连线**吸附到那个圆圈的圆心**，
+   *      让用户直观看到「松手就会连到这里」。
+   * @returns {{id:string,dir:string,port:string,ok:boolean,reason:string,x:number,y:number}|null}
+   */
   highlightDropTarget(e) {
     this.clearHighlights();
     const t = this.findPortAt(e.clientX, e.clientY);
-    if (!t) return;
-    const el = this.nodesLayer.querySelector(`[data-id="${t.id}"]`);
-    if (!el) return;
-    const canvas = store.activeCanvas();
-    const port = el.querySelector(t.dir === 'in' ? '.cv-port-in' : '.cv-port-out');
     const lk = this.linking;
-    // 校验合法性并给出颜色反馈
+    if (!t) {
+      // 没靠近任何圆圈：临时线跟着鼠标走，并清掉之前的错误提示
+      this.snapTarget = null;
+      if (this.lastConnectReason) {
+        this.lastConnectReason = '';
+        this.onConnectError && this.onConnectError('');
+      }
+      return null;
+    }
+    const el = this.nodesLayer.querySelector(`[data-id="${t.id}"]`);
+    const canvas = store.activeCanvas();
     let ok = true, reason = '';
     if (lk && (lk.fromId || lk.toId)) {
       let from, to;
@@ -671,10 +794,34 @@ export class CanvasView {
       const c = M.checkConnect(canvas, from, to, { defOf });
       ok = c.ok; reason = c.reason || '';
     } else {
+      // 还没开始拉线：只有入口算是「可落点」
       ok = t.dir === 'in';
+      if (!ok) reason = '这里不是入口：入口是控件左侧的小圆点';
     }
-    port.classList.add(ok ? 'ok' : 'bad');
-    if (!ok && reason) this.toast(reason, 'error', true);
+    // 圆圈着色：ok = 绿，bad = 红（CSS .cv-port.ok / .bad）
+    if (el) {
+      const portEl = el.querySelector(t.dir === 'in' ? '.cv-port-in' : '.cv-port-out');
+      if (portEl) portEl.classList.add(ok ? 'ok' : 'bad');
+    }
+    this.snapTarget = ok ? { id: t.id, dir: t.dir, port: t.port, x: t.x, y: t.y } : null;
+    // mousemove 每帧都会走到这里：同一个原因只提示一次，别刷屏
+    if (ok) {
+      if (this.lastConnectReason) {
+        this.lastConnectReason = '';
+        this.onConnectError && this.onConnectError('');
+      }
+    } else if (reason) {
+      if (this.lastConnectReason !== reason) {
+        this.lastConnectReason = reason;
+        this.toast(reason, 'error', true);
+        this.onConnectError && this.onConnectError(reason);
+      }
+    }
+    // 返回坐标（世界坐标）——调用方要拿它把临时线的末端吸到圆心。
+    // 这里以前只返回 {id,dir,port,ok,reason}，于是调用方 w = {x: hit.x, y: hit.y}
+    // 拿到的是 undefined，临时线的路径算出来是 NaN；SVG 画不出 NaN 路径，
+    // 表现就是「快连上时连线突然不见了，松手后又出现」（用户报的第 2 条）。
+    return { id: t.id, dir: t.dir, port: t.port, ok, reason, x: t.x, y: t.y };
   }
 
   clearHighlights() {
@@ -741,15 +888,24 @@ export class CanvasView {
     }
   }
 
+  /**
+   * 找鼠标下的端口。判定半径第 15 轮放宽到 34px（并按缩放换算），
+   * 因为原来的 26px 太小：用户明明已经拖到目标圆圈附近，却因为差几像素
+   * 判成「没有目标」—— 于是既不判红也没有错误提醒（用户第 4 条反馈）。
+   * @returns {{id:string, dir:'in'|'out', port:string, x:number, y:number}|null}
+   */
   findPortAt(clientX, clientY) {
     const canvas = store.activeCanvas();
     if (!canvas) return null;
-    let best = null, bestD = 26;
+    const radius = Math.max(26, 34 * this.zoom);
+    let best = null, bestD = radius;
     for (const n of canvas.nodes) {
       const d = defOf(n.def);
-      const h = this.nodeHeight(d);
       const cands = [];
-      if ((d.inPorts || []).length) cands.push({ dir: 'in', port: 'in', x: n.x, y: n.y + h / 2 });
+      if ((d.inPorts || []).length) {
+        const p = this.portPos(n, 'in', 'in');
+        cands.push({ dir: 'in', port: 'in', x: p.x, y: p.y });
+      }
       for (const p of d.outPorts || []) {
         const pos = this.portPos(n, 'out', p.id);
         cands.push({ dir: 'out', port: p.id, x: pos.x, y: pos.y });
@@ -757,7 +913,10 @@ export class CanvasView {
       for (const c of cands) {
         const s = this.worldToScreen(c.x, c.y);
         const dist = Math.hypot(s.x - clientX, s.y - clientY);
-        if (dist < bestD) { bestD = dist; best = { id: n.id, dir: c.dir, port: c.port }; }
+        if (dist < bestD) {
+          bestD = dist;
+          best = { id: n.id, dir: c.dir, port: c.port, x: c.x, y: c.y };
+        }
       }
     }
     return best;
@@ -847,6 +1006,15 @@ export class CanvasView {
 // ---------------- 工具 ----------------
 
 function bezier(a, b) {
+  // NaN 兜底：坐标一旦是 undefined/NaN，路径里出现 NaN 时 SVG 会**整条不画**
+  // —— 用户看到的是「连线凭空消失」，极难定位（第 15 轮真踩过：临时线在
+  // 吸附瞬间变 NaN）。这里退化成一条零长度线段，至少线还在、也看得出异常。
+  if (!Number.isFinite(a.x) || !Number.isFinite(a.y)
+      || !Number.isFinite(b.x) || !Number.isFinite(b.y)) {
+    const x = Number.isFinite(a.x) ? a.x : 0;
+    const y = Number.isFinite(a.y) ? a.y : 0;
+    return `M ${x} ${y} L ${x} ${y}`;
+  }
   const dx = Math.max(40, Math.abs(b.x - a.x) * 0.5);
   return `M ${a.x} ${a.y} C ${a.x + dx} ${a.y}, ${b.x - dx} ${b.y}, ${b.x} ${b.y}`;
 }
